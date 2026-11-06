@@ -5,28 +5,24 @@
 
 <form method="post" class="form" id="template-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="payload" id="payload">
   <label>Name
-    <input type="text" name="name" value="{{ template.name or '' }}" placeholder="e.g. Push Day" required maxlength="120">
+    <input type="text" id="tpl-name" placeholder="e.g. Push Day" required maxlength="120">
   </label>
   <label>Notes <span class="muted small">(optional)</span>
-    <textarea name="notes" rows="2">{{ template.notes or '' }}</textarea>
+    <textarea id="tpl-notes" rows="2"></textarea>
   </label>
 
   <h2>Exercises</h2>
-  <div id="rows">
-    {% for te in template.exercises %}
-      {% with name=te.exercise.name, sets=te.sets, reps=te.reps, weight=te.weight, rest=te.rest_seconds %}
-        {% include "workout_templates/_row.html" %}
-      {% endwith %}
-    {% endfor %}
-  </div>
-  <template id="row-template">
-    {% with name='', sets=3, reps=10, weight=None, rest=current_user.default_rest_seconds %}
-      {% include "workout_templates/_row.html" %}
-    {% endwith %}
-  </template>
+  {% if template.id %}
+  <p class="small muted">Weights and reps update automatically from your last workout with this template.</p>
+  {% endif %}
+  <div id="tpl-exercises"></div>
 
-  <button type="button" class="btn btn-block" id="add-row">+ Add exercise</button>
+  <div class="card add-exercise">
+    <input type="text" id="tpl-add-name" list="exercise-names" placeholder="Add exercise — pick or type a new one" aria-label="Exercise name">
+    <button type="button" class="btn btn-primary" id="tpl-add">Add</button>
+  </div>
 
   <datalist id="exercise-names">
     {% for n in exercise_names %}<option value="{{ n }}">{% endfor %}
@@ -37,6 +33,9 @@
     <a class="btn" href="{{ url_for('main.template_list') }}">Cancel</a>
   </div>
 </form>
+
+<script id="tpl-data" type="application/json">{{ payload|tojson }}</script>
+<script id="tpl-config" type="application/json">{{ {"unit": current_user.unit, "defaultRest": current_user.default_rest_seconds}|tojson }}</script>
 {% endblock %}
 
 {% block scripts %}

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -8,6 +10,8 @@ from app import create_app
 from app.extensions import db
 from app.models import OAuthIdentity, SetEntry, User, Workout, WorkoutTemplate
 
+PASSWORD = "correct-horse"
+
 
 @pytest.fixture
 def app():
@@ -16,7 +20,6 @@ def app():
             "TESTING": True,
             "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
             "WTF_CSRF_ENABLED": False,
-            "DEV_LOGIN": True,
         }
     )
     with app.app_context():
@@ -29,22 +32,38 @@ def client(app):
     return app.test_client()
 
 
-def login(client, email="lifter@example.com"):
-    return client.post("/auth/dev-login", data={"email": email}, follow_redirects=False)
+def register(client, email="lifter@example.com", password=PASSWORD):
+    return client.post(
+        "/auth/register", data={"email": email, "password": password, "confirm": password}
+    )
 
 
 def make_template(client, name="Push Day"):
-    return client.post(
-        "/templates/new",
-        data={
-            "name": name,
-            "exercise_name": ["Bench Press", "My Custom Press"],
-            "sets": ["3", "2"],
-            "reps": ["8", "12"],
-            "weight": ["60", ""],
-            "rest_seconds": ["120", "60"],
-        },
-    )
+    payload = {
+        "name": name,
+        "notes": "",
+        "exercises": [
+            {
+                "name": "Bench Press",
+                "sets": [
+                    {"reps": 8, "weight": 60, "rest_seconds": 120},
+                    {"reps": 8, "weight": 60, "rest_seconds": 120},
+                    {"reps": 6, "weight": 65, "rest_seconds": 180},
+                ],
+            },
+            {"name": "My Custom Press", "sets": [{"reps": 12, "weight": "", "rest_seconds": 60}]},
+        ],
+    }
+    return client.post("/templates/new", data={"payload": json.dumps(payload)})
+
+
+def start(client, template_id=None):
+    data = {"template_id": template_id} if template_id else {}
+    r = client.post("/workouts/start", data=data)
+    return int(r.headers["Location"].rsplit("/", 1)[1])
+
+
+# --------------------------------------------------------------------------- auth
 
 
 def test_requires_login(client):
@@ -53,135 +72,65 @@ def test_requires_login(client):
     assert client.get("/api/workouts/1").status_code == 401
 
 
-def test_login_page_without_providers(app):
-    app.config["DEV_LOGIN"] = False
-    r = app.test_client().get("/auth/login")
-    assert b"No sign-in providers are configured" in r.data
-
-
-def test_dev_login_disabled_returns_404(app):
-    app.config["DEV_LOGIN"] = False
-    assert app.test_client().post("/auth/dev-login", data={"email": "a@b.c"}).status_code == 404
-
-
-def test_template_crud_and_start_workout(client, app):
-    login(client)
-    r = make_template(client)
-    assert r.status_code == 302
-
-    with app.app_context():
-        t = WorkoutTemplate.query.one()
-        assert [te.exercise.name for te in t.exercises] == ["Bench Press", "My Custom Press"]
-        assert t.exercises[0].weight == 60 and t.exercises[0].rest_seconds == 120
-        tid = t.id
-
-    r = client.post("/workouts/start", data={"template_id": tid})
-    assert r.status_code == 302
-    wid = int(r.headers["Location"].rsplit("/", 1)[1])
-
-    data = client.get(f"/api/workouts/{wid}").get_json()
-    assert data["name"] == "Push Day"
-    bench = data["exercises"][0]
-    assert len(bench["sets"]) == 3 and bench["sets"][0]["weight"] == 60 and bench["sets"][0]["reps"] == 8
-    assert bench["rest_seconds"] == 120
-
-    # Can't start a second workout while one is active
-    r = client.post("/workouts/start", data={})
-    assert r.headers["Location"].endswith(f"/workouts/{wid}")
-
-    # Log sets
-    for s in bench["sets"][:2]:
-        r = client.patch(f"/api/sets/{s['id']}", json={"reps": 7, "weight": "62.5", "completed": True})
-        assert r.status_code == 200 and r.get_json()["completed"] is True
-
-    # Add an exercise manually and a set to it
-    r = client.post(f"/api/workouts/{wid}/exercises", json={"name": "  pull-up  ", "sets": 1})
-    assert r.status_code == 201 and r.get_json()["name"] == "Pull-up"  # matched built-in
-    we_id = r.get_json()["id"]
-    s = client.post(f"/api/workout-exercises/{we_id}/sets").get_json()
-    client.patch(f"/api/sets/{s['id']}", json={"reps": 10, "completed": True})
-
-    # Finish
-    client.post(f"/workouts/{wid}/finish")
-    with app.app_context():
-        w = db.session.get(Workout, wid)
-        assert w.finished_at is not None
-        # Untouched sets from "My Custom Press" (no weight) still have reps from template, so kept;
-        # the empty first set of Pull-up is dropped.
-        pull = [we for we in w.exercises if we.exercise.name == "Pull-up"][0]
-        assert len(pull.sets) == 1
-        assert w.total_volume == 2 * 7 * 62.5
-
-    # Finished workouts are read-only through the API
-    assert client.patch(f"/api/sets/{bench['sets'][2]['id']}", json={"reps": 1}).status_code == 409
-
-    assert b"Push Day" in client.get("/history").data
-    assert b"Push Day" in client.get(f"/workouts/{wid}").data
-
-    # Next workout prefills from previous performance
-    r = client.post("/workouts/start", data={})
-    wid2 = int(r.headers["Location"].rsplit("/", 1)[1])
-    we = client.post(f"/api/workouts/{wid2}/exercises", json={"name": "Bench Press", "sets": 2}).get_json()
-    assert we["previous"][0] == {"reps": 7, "weight": 62.5}
-    assert we["sets"][0]["weight"] == 62.5
-
-
-def test_save_workout_as_template(client, app):
-    login(client)
-    wid = int(client.post("/workouts/start").headers["Location"].rsplit("/", 1)[1])
-    we = client.post(f"/api/workouts/{wid}/exercises", json={"name": "Deadlift", "sets": 2}).get_json()
-    for s in we["sets"]:
-        client.patch(f"/api/sets/{s['id']}", json={"reps": 5, "weight": 140, "completed": True})
-    client.post(f"/workouts/{wid}/finish")
-    r = client.post(f"/workouts/{wid}/save-template", data={"name": "Pull Day"})
-    assert r.status_code == 302
-    with app.app_context():
-        t = WorkoutTemplate.query.filter_by(name="Pull Day").one()
-        assert t.exercises[0].sets == 2 and t.exercises[0].weight == 140
-
-
-def test_discard_and_reorder(client, app):
-    login(client)
-    wid = int(client.post("/workouts/start").headers["Location"].rsplit("/", 1)[1])
-    a = client.post(f"/api/workouts/{wid}/exercises", json={"name": "Squat A"}).get_json()
-    b = client.post(f"/api/workouts/{wid}/exercises", json={"name": "Squat B"}).get_json()
-    client.patch(f"/api/workout-exercises/{b['id']}", json={"move": "up", "rest_seconds": 45})
-    data = client.get(f"/api/workouts/{wid}").get_json()
-    assert [e["name"] for e in data["exercises"]] == ["Squat B", "Squat A"]
-    assert data["exercises"][0]["rest_seconds"] == 45
-
-    client.delete(f"/api/sets/{a['sets'][0]['id']}")
-    client.delete(f"/api/workout-exercises/{a['id']}")
-    client.post(f"/workouts/{wid}/delete")
-    with app.app_context():
-        assert Workout.query.count() == 0 and SetEntry.query.count() == 0
-
-
-def test_users_are_isolated(app):
-    c1, c2 = app.test_client(), app.test_client()
-    login(c1, "one@example.com")
-    login(c2, "two@example.com")
-    make_template(c1)
-    wid = int(c1.post("/workouts/start").headers["Location"].rsplit("/", 1)[1])
-    we = c1.post(f"/api/workouts/{wid}/exercises", json={"name": "Bench Press"}).get_json()
-
-    with app.app_context():
-        tid = WorkoutTemplate.query.one().id
-    assert c2.get(f"/templates/{tid}/edit").status_code == 404
-    assert c2.post("/workouts/start", data={"template_id": tid}).status_code == 404
-    assert c2.get(f"/api/workouts/{wid}").status_code == 404
-    assert c2.patch(f"/api/sets/{we['sets'][0]['id']}", json={"reps": 1}).status_code == 404
-    assert c2.post(f"/workouts/{wid}/delete").status_code == 404
-    # Custom exercise from user one isn't visible to user two
-    assert b"My Custom Press" not in c2.get("/templates/new").data
-
-
-def test_settings(client, app):
-    login(client)
-    client.post("/settings", data={"name": "Sam", "unit": "lb", "default_rest_seconds": "150"})
+def test_register_login_logout(client, app):
+    r = register(client, "New@Example.com")
+    assert r.status_code == 302 and r.headers["Location"] == "/"
     with app.app_context():
         u = User.query.one()
-        assert (u.name, u.unit, u.default_rest_seconds) == ("Sam", "lb", 150)
+        assert u.email == "new@example.com" and u.password_hash and u.password_hash != PASSWORD
+
+    client.post("/auth/logout")
+    assert client.get("/").status_code == 302
+
+    r = client.post("/auth/login", data={"email": "new@example.com", "password": "wrong-pass"})
+    assert b"Incorrect email or password" in r.data
+    r = client.post("/auth/login", data={"email": "NEW@example.com ", "password": PASSWORD})
+    assert r.status_code == 302 and client.get("/").status_code == 200
+
+
+def test_register_validation(client, app):
+    assert b"at least 8" in register(client, password="short").data
+    assert b"valid email" in register(client, email="nope").data
+    r = client.post("/auth/register", data={"email": "a@b.co", "password": PASSWORD, "confirm": "different1"})
+    assert b"match" in r.data
+    register(client, "dup@example.com")
+    client.post("/auth/logout")
+    assert b"already exists" in register(client, "dup@example.com").data
+    with app.app_context():
+        assert User.query.count() == 1
+
+
+def test_change_password(client, app):
+    register(client)
+    r = client.post("/settings", data={"form": "password", "current_password": "nope-nope",
+                                       "new_password": "newpassword", "confirm": "newpassword"},
+                    follow_redirects=True)
+    assert b"Current password is incorrect" in r.data
+    client.post("/settings", data={"form": "password", "current_password": PASSWORD,
+                                   "new_password": "newpassword", "confirm": "newpassword"})
+    client.post("/auth/logout")
+    assert client.post("/auth/login", data={"email": "lifter@example.com", "password": "newpassword"}).status_code == 302
+
+
+def test_sso_links_to_password_account_and_drops_unverified_password(app):
+    from app.auth import _login_from_claims
+
+    with app.test_request_context():
+        squatter = User(email="victim@example.com")
+        squatter.set_password(PASSWORD)
+        db.session.add(squatter)
+        db.session.commit()
+
+        _login_from_claims("google", {"sub": "g-1", "email": "victim@example.com", "email_verified": True})
+        u = User.query.one()
+        assert u.password_hash is None and u.email_verified
+        assert [i.provider for i in u.identities] == ["google"]
+
+        # Once the email is verified, a password set afterwards survives another SSO login.
+        u.set_password("brand-new-pass")
+        db.session.commit()
+        _login_from_claims("apple", {"sub": "a-1", "email": "victim@example.com", "email_verified": "true"})
+        assert u.check_password("brand-new-pass")
 
 
 def test_identity_linking_by_verified_email(app):
@@ -226,7 +175,180 @@ def test_oauth_providers_registered_when_configured():
     with plain_app.test_request_context():
         assert providers() == []
     assert b"Continue with Google" in google_app.test_client().get("/auth/login").data
+    plain_login = plain_app.test_client().get("/auth/login").data
+    assert b"Continue with" not in plain_login and b"Password" in plain_login
     assert plain_app.test_client().get("/auth/login/apple").status_code == 404
+
+
+# --------------------------------------------------------------------------- templates & workouts
+
+
+def test_template_sets_are_individual_entries(client, app):
+    register(client)
+    assert make_template(client).status_code == 302
+    with app.app_context():
+        t = WorkoutTemplate.query.one()
+        bench = t.exercises[0]
+        assert [(s.reps, s.weight, s.rest_seconds) for s in bench.sets] == [(8, 60, 120), (8, 60, 120), (6, 65, 180)]
+        assert t.exercises[1].sets[0].weight is None
+
+    # Editor round-trips the per-set data
+    page = client.get(f"/templates/{t.id}/edit").data.decode()
+    assert '"rest_seconds": 180' in page and '"weight": 65.0' in page
+
+    # Validation error keeps what the user typed
+    r = client.post("/templates/new", data={"payload": json.dumps({"name": "", "exercises": []})})
+    assert b"Give the template a name" in r.data
+
+
+def test_workout_from_template_and_template_learns(client, app):
+    register(client)
+    make_template(client)
+    with app.app_context():
+        tid = WorkoutTemplate.query.one().id
+
+    wid = start(client, tid)
+    data = client.get(f"/api/workouts/{wid}").get_json()
+    bench = data["exercises"][0]
+    assert [(s["weight"], s["reps"], s["rest_seconds"]) for s in bench["sets"]] == [(60, 8, 120), (60, 8, 120), (65, 6, 180)]
+
+    # Can't start a second workout while one is active
+    assert start(client) == wid
+
+    # User goes heavier on sets 1 and 2, skips set 3
+    for s in bench["sets"][:2]:
+        r = client.patch(f"/api/sets/{s['id']}", json={"reps": 7, "weight": "62.5", "completed": True})
+        assert r.status_code == 200 and r.get_json()["completed"] is True
+    client.post(f"/workouts/{wid}/finish")
+
+    with app.app_context():
+        w = db.session.get(Workout, wid)
+        assert w.finished_at is not None and w.total_volume == 2 * 7 * 62.5
+        t = db.session.get(WorkoutTemplate, tid)
+        sets = t.exercises[0].sets
+        # Completed sets updated the template; the skipped set kept its old target.
+        assert [(s.weight, s.reps) for s in sets] == [(62.5, 7), (62.5, 7), (65, 6)]
+        assert [s.rest_seconds for s in sets] == [120, 120, 180]
+
+    # Next time, the template's new numbers are the defaults
+    wid2 = start(client, tid)
+    bench2 = client.get(f"/api/workouts/{wid2}").get_json()["exercises"][0]
+    assert [(s["weight"], s["reps"]) for s in bench2["sets"]] == [(62.5, 7), (62.5, 7), (65, 6)]
+
+    # Finished workouts are read-only through the API
+    assert client.patch(f"/api/sets/{bench['sets'][2]['id']}", json={"reps": 1}).status_code == 409
+
+
+def test_discarded_workout_does_not_change_template(client, app):
+    register(client)
+    make_template(client)
+    with app.app_context():
+        tid = WorkoutTemplate.query.one().id
+    wid = start(client, tid)
+    s = client.get(f"/api/workouts/{wid}").get_json()["exercises"][0]["sets"][0]
+    client.patch(f"/api/sets/{s['id']}", json={"reps": 1, "weight": 200, "completed": True})
+    client.post(f"/workouts/{wid}/delete")
+    with app.app_context():
+        assert db.session.get(WorkoutTemplate, tid).exercises[0].sets[0].weight == 60
+
+
+def test_add_set_prefills_from_previous_workout(client, app):
+    register(client)
+    # Last time: chin-ups 3 sets — bodyweight+10 x 8, +10 x 7, +5 x 6
+    wid = start(client)
+    we = client.post(f"/api/workouts/{wid}/exercises", json={"name": "Chin-up"}).get_json()
+    assert len(we["sets"]) == 1
+    first = we["sets"][0]
+    client.patch(f"/api/sets/{first['id']}", json={"reps": 8, "weight": 10, "rest_seconds": 150, "completed": True})
+    for reps, weight in [(7, 10), (6, 5)]:
+        s = client.post(f"/api/workout-exercises/{we['id']}/sets").get_json()
+        assert s["rest_seconds"] == 150  # rest copies the set above
+        client.patch(f"/api/sets/{s['id']}", json={"reps": reps, "weight": weight, "completed": True})
+    client.post(f"/workouts/{wid}/finish")
+
+    # This time: each added set defaults to the same set number from last time
+    wid2 = start(client)
+    we2 = client.post(f"/api/workouts/{wid2}/exercises", json={"name": "chin-up"}).get_json()
+    assert we2["name"] == "Chin-up"
+    assert (we2["sets"][0]["weight"], we2["sets"][0]["reps"]) == (10, 8)
+    s2 = client.post(f"/api/workout-exercises/{we2['id']}/sets").get_json()
+    s3 = client.post(f"/api/workout-exercises/{we2['id']}/sets").get_json()
+    s4 = client.post(f"/api/workout-exercises/{we2['id']}/sets").get_json()
+    assert (s2["weight"], s2["reps"]) == (10, 7)
+    assert (s3["weight"], s3["reps"]) == (5, 6)
+    assert (s4["weight"], s4["reps"]) == (5, 6)  # beyond last time: copy the set above
+    assert we2["previous"] == [{"reps": 8, "weight": 10}, {"reps": 7, "weight": 10}, {"reps": 6, "weight": 5}]
+
+    # Per-set rest can be changed
+    r = client.patch(f"/api/sets/{s2['id']}", json={"rest_seconds": 45})
+    assert r.get_json()["rest_seconds"] == 45
+
+
+def test_save_workout_as_template(client, app):
+    register(client)
+    wid = start(client)
+    we = client.post(f"/api/workouts/{wid}/exercises", json={"name": "Deadlift"}).get_json()
+    client.post(f"/api/workout-exercises/{we['id']}/sets")
+    sets = client.get(f"/api/workouts/{wid}").get_json()["exercises"][0]["sets"]
+    for s, w in zip(sets, (140, 150)):
+        client.patch(f"/api/sets/{s['id']}", json={"reps": 5, "weight": w, "completed": True})
+    client.post(f"/workouts/{wid}/finish")
+    r = client.post(f"/workouts/{wid}/save-template", data={"name": "Pull Day"})
+    assert r.status_code == 302
+    with app.app_context():
+        t = WorkoutTemplate.query.filter_by(name="Pull Day").one()
+        assert [(s.weight, s.reps) for s in t.exercises[0].sets] == [(140, 5), (150, 5)]
+
+
+def test_discard_and_reorder(client, app):
+    register(client)
+    wid = start(client)
+    a = client.post(f"/api/workouts/{wid}/exercises", json={"name": "Squat A"}).get_json()
+    b = client.post(f"/api/workouts/{wid}/exercises", json={"name": "Squat B"}).get_json()
+    client.patch(f"/api/workout-exercises/{b['id']}", json={"move": "up"})
+    data = client.get(f"/api/workouts/{wid}").get_json()
+    assert [e["name"] for e in data["exercises"]] == ["Squat B", "Squat A"]
+
+    client.delete(f"/api/sets/{a['sets'][0]['id']}")
+    client.delete(f"/api/workout-exercises/{a['id']}")
+    client.post(f"/workouts/{wid}/delete")
+    with app.app_context():
+        assert Workout.query.count() == 0 and SetEntry.query.count() == 0
+
+
+def test_users_are_isolated(app):
+    c1, c2 = app.test_client(), app.test_client()
+    register(c1, "one@example.com")
+    register(c2, "two@example.com")
+    make_template(c1)
+    wid = start(c1)
+    we = c1.post(f"/api/workouts/{wid}/exercises", json={"name": "Bench Press"}).get_json()
+
+    with app.app_context():
+        tid = WorkoutTemplate.query.one().id
+    assert c2.get(f"/templates/{tid}/edit").status_code == 404
+    assert c2.post("/workouts/start", data={"template_id": tid}).status_code == 404
+    assert c2.get(f"/api/workouts/{wid}").status_code == 404
+    assert c2.patch(f"/api/sets/{we['sets'][0]['id']}", json={"reps": 1}).status_code == 404
+    assert c2.post(f"/api/workout-exercises/{we['id']}/sets").status_code == 404
+    assert c2.post(f"/workouts/{wid}/delete").status_code == 404
+    # Custom exercise from user one isn't visible to user two
+    assert b"My Custom Press" not in c2.get("/templates/new").data
+
+
+def test_settings(client, app):
+    register(client)
+    client.post("/settings", data={"name": "Sam", "unit": "lb", "default_rest_seconds": "150"})
+    with app.app_context():
+        u = User.query.one()
+        assert (u.name, u.unit, u.default_rest_seconds) == ("Sam", "lb", 150)
+
+
+def test_pages_render(client):
+    register(client)
+    make_template(client)
+    for url in ("/", "/templates", "/templates/new", "/history", "/settings"):
+        assert client.get(url).status_code == 200, url
 
 
 def test_healthz(client):

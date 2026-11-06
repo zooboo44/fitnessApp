@@ -120,9 +120,17 @@ def _login_from_claims(provider, claims, name=None):
         user = identity.user
     else:
         user = None
-        # Link to an existing account with the same verified email (e.g. Google then Apple).
+        # Link to an existing account with the same verified email (e.g. Google then Apple,
+        # or an email/password account).
         if email and email_verified:
             user = User.query.filter_by(email=email).first()
+            if user is not None and user.password_hash and not user.email_verified:
+                # Nobody proved they owned this address when the password was set, so it
+                # might belong to someone else who registered it first. Drop the password
+                # so only the verified owner keeps access.
+                user.set_password(None)
+                flash("Your password was reset because your email was verified with "
+                      f"{provider.capitalize()}. You can set a new one in Settings.", "success")
         if user is None:
             # An unverified email that already belongs to someone else is not stored.
             if email and User.query.filter_by(email=email).first():
@@ -136,26 +144,82 @@ def _login_from_claims(provider, claims, name=None):
         user.name = name or claims.get("name")
     if not user.email and email:
         user.email = email
+    if email_verified and user.email == email:
+        user.email_verified = True
     db.session.commit()
 
+    return _finish_login(user)
+
+
+def _finish_login(user):
     login_user(user, remember=True)
     next_url = session.pop("next_url", None)
     return redirect(next_url or url_for("main.dashboard"))
 
 
+MIN_PASSWORD_LENGTH = 8
+
+
+def _normalise_email(value):
+    email = (value or "").strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 255:
+        return None
+    return email
+
+
 # --------------------------------------------------------------------------- routes
 
 
-@bp.route("/login")
+@bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("main.dashboard"))
     nxt = request.args.get("next")
     if nxt and nxt.startswith("/") and not nxt.startswith("//"):
         session["next_url"] = nxt
-    return render_template(
-        "auth/login.html", providers=providers(), dev_login=current_app.config["DEV_LOGIN"]
-    )
+
+    email = ""
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        user = User.query.filter_by(email=email).first() if email else None
+        if user and user.check_password(request.form.get("password") or ""):
+            return _finish_login(user)
+        if user and not user.password_hash and user.identities:
+            flash("This account signs in with "
+                  + " or ".join(sorted({i.provider.capitalize() for i in user.identities}))
+                  + ". Use that button below, then set a password in Settings if you want one.", "error")
+        else:
+            flash("Incorrect email or password.", "error")
+    return render_template("auth/login.html", providers=providers(), email=email)
+
+
+@bp.route("/register", methods=["GET", "POST"])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for("main.dashboard"))
+    form = {"email": "", "name": ""}
+    if request.method == "POST":
+        form = {"email": request.form.get("email", ""), "name": request.form.get("name", "").strip()}
+        email = _normalise_email(form["email"])
+        password = request.form.get("password") or ""
+        error = None
+        if email is None:
+            error = "Enter a valid email address."
+        elif len(password) < MIN_PASSWORD_LENGTH:
+            error = f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+        elif password != request.form.get("confirm"):
+            error = "Passwords don't match."
+        elif User.query.filter_by(email=email).first():
+            error = "An account with this email already exists — sign in instead."
+        if error:
+            flash(error, "error")
+        else:
+            user = User(email=email, name=form["name"][:255] or None)
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            return _finish_login(user)
+    return render_template("auth/register.html", providers=providers(), form=form)
 
 
 @bp.route("/login/<provider>")
@@ -216,20 +280,11 @@ def callback_apple_complete():
     return _login_from_claims("apple", claims, name=name)
 
 
-@bp.route("/dev-login", methods=["POST"])
-def dev_login():
-    if not current_app.config["DEV_LOGIN"]:
-        abort(404)
-    email = (request.form.get("email") or "").strip().lower()
-    if "@" not in email:
-        flash("Enter an email address.", "error")
-        return redirect(url_for("auth.login"))
-    return _login_from_claims("dev", {"sub": email, "email": email, "email_verified": True})
-
-
 @bp.route("/logout", methods=["POST"])
 @login_required
 def logout():
-    logout_user()
+    # Clear first: logout_user() leaves a flag in the session that tells Flask-Login to
+    # delete the "remember me" cookie, and clearing afterwards would wipe that flag.
     session.clear()
+    logout_user()
     return redirect(url_for("auth.login"))

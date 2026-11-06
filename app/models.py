@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from flask_login import UserMixin
 from sqlalchemy import func
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from .extensions import db
 
@@ -16,9 +17,18 @@ class User(UserMixin, db.Model):
     name = db.Column(db.String(255))
     unit = db.Column(db.String(2), nullable=False, default="kg")  # "kg" or "lb"
     default_rest_seconds = db.Column(db.Integer, nullable=False, default=90)
+    password_hash = db.Column(db.String(255))
+    # True once an SSO provider has vouched for this email address.
+    email_verified = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
 
     identities = db.relationship("OAuthIdentity", back_populates="user", cascade="all, delete-orphan")
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password) if password else None
+
+    def check_password(self, password):
+        return bool(self.password_hash) and check_password_hash(self.password_hash, password)
 
     @property
     def display_name(self):
@@ -90,13 +100,30 @@ class TemplateExercise(db.Model):
     template_id = db.Column(db.Integer, db.ForeignKey("workout_template.id"), nullable=False, index=True)
     exercise_id = db.Column(db.Integer, db.ForeignKey("exercise.id"), nullable=False)
     position = db.Column(db.Integer, nullable=False, default=0)
-    sets = db.Column(db.Integer, nullable=False, default=3)
+
+    template = db.relationship("WorkoutTemplate", back_populates="exercises")
+    exercise = db.relationship("Exercise")
+    sets = db.relationship(
+        "TemplateSet",
+        back_populates="template_exercise",
+        cascade="all, delete-orphan",
+        order_by="TemplateSet.position",
+    )
+
+
+class TemplateSet(db.Model):
+    """One planned set in a template. Reps/weight are updated from the latest workout."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    template_exercise_id = db.Column(
+        db.Integer, db.ForeignKey("template_exercise.id"), nullable=False, index=True
+    )
+    position = db.Column(db.Integer, nullable=False, default=0)
     reps = db.Column(db.Integer)
     weight = db.Column(db.Float)
     rest_seconds = db.Column(db.Integer, nullable=False, default=90)
 
-    template = db.relationship("WorkoutTemplate", back_populates="exercises")
-    exercise = db.relationship("Exercise")
+    template_exercise = db.relationship("TemplateExercise", back_populates="sets")
 
 
 class Workout(db.Model):
@@ -138,7 +165,10 @@ class WorkoutExercise(db.Model):
     workout_id = db.Column(db.Integer, db.ForeignKey("workout.id"), nullable=False, index=True)
     exercise_id = db.Column(db.Integer, db.ForeignKey("exercise.id"), nullable=False)
     position = db.Column(db.Integer, nullable=False, default=0)
+    # Default rest for sets added to this exercise when there is no earlier set to copy.
     rest_seconds = db.Column(db.Integer, nullable=False, default=90)
+    # Which template row this came from, so finishing the workout can update the template.
+    template_exercise_id = db.Column(db.Integer)
 
     workout = db.relationship("Workout", back_populates="exercises")
     exercise = db.relationship("Exercise")
@@ -156,6 +186,8 @@ class SetEntry(db.Model):
     position = db.Column(db.Integer, nullable=False, default=0)
     reps = db.Column(db.Integer)
     weight = db.Column(db.Float)
+    # Rest timer that follows this set; starts when the set is marked done.
+    rest_seconds = db.Column(db.Integer, nullable=False, default=90)
     completed = db.Column(db.Boolean, nullable=False, default=False)
     completed_at = db.Column(db.DateTime)
 

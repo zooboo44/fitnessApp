@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask, redirect, request, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -12,7 +14,7 @@ def create_app(config_overrides=None):
         app.config.update(config_overrides)
 
     insecure_key = app.config["SECRET_KEY"] in ("", "dev-insecure-change-me", "change-me")
-    if insecure_key and not (app.config.get("TESTING") or app.config["DEV_LOGIN"]):
+    if insecure_key and not (app.config.get("TESTING") or os.environ.get("FLASK_DEBUG") == "1"):
         raise RuntimeError("Set SECRET_KEY to a long random value (see .env.example).")
 
     if app.config["PROXY_COUNT"] > 0:

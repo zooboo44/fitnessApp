@@ -35,9 +35,6 @@ class Config:
     APPLE_PRIVATE_KEY = os.environ.get("APPLE_PRIVATE_KEY", "")
     APPLE_PRIVATE_KEY_PATH = os.environ.get("APPLE_PRIVATE_KEY_PATH", "")
 
-    # Local development only: shows an email-only login form. Never enable in production.
-    DEV_LOGIN = _bool("DEV_LOGIN", False)
-
     # Create tables + seed exercises when the app starts (the Docker image runs
     # `flask init-db` once instead, so gunicorn workers don't race).
     AUTO_INIT_DB = _bool("AUTO_INIT_DB", True)

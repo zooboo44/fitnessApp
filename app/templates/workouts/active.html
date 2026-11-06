@@ -7,6 +7,9 @@
     <div class="elapsed" title="Elapsed time"><span id="elapsed">0:00</span></div>
   </div>
 
+  {% if workout.template_id %}
+  <p class="small muted">Started from a template — the weights and reps you complete will become its new defaults.</p>
+  {% endif %}
   <div id="exercises"><p class="muted">Loading…</p></div>
 
   <form id="add-exercise" class="card add-exercise" autocomplete="off">
@@ -22,7 +25,6 @@
   </label>
 
   <div class="actions">
-    <button type="button" class="btn" id="manual-timer">⏱ Start rest timer</button>
     <form method="post" action="{{ url_for('main.workout_finish', workout_id=workout.id) }}" id="finish-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-primary" type="submit">Finish workout</button>

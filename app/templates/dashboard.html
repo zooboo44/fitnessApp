@@ -33,7 +33,7 @@
       </div>
       <ul class="plain small muted">
         {% for te in t.exercises[:6] %}
-        <li>{{ te.sets }} × {{ te.exercise.name }}</li>
+        <li>{{ te.sets|length }} × {{ te.exercise.name }}</li>
         {% endfor %}
         {% if t.exercises|length > 6 %}<li>+ {{ t.exercises|length - 6 }} more</li>{% endif %}
       </ul>

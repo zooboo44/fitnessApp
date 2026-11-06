@@ -8,6 +8,7 @@ from .models import (
     Exercise,
     SetEntry,
     TemplateExercise,
+    TemplateSet,
     Workout,
     WorkoutExercise,
     WorkoutTemplate,
@@ -49,24 +50,35 @@ def previous_sets(user, exercise_id, exclude_workout_id=None):
     return [s for s in we.sets if s.completed] or list(we.sets)
 
 
-def add_exercise_to_workout(workout, exercise, sets=1, reps=None, weight=None, rest_seconds=None):
-    position = max((we.position for we in workout.exercises), default=-1) + 1
-    we = WorkoutExercise(
-        exercise=exercise,
-        position=position,
-        rest_seconds=rest_seconds if rest_seconds is not None else current_user.default_rest_seconds,
+def new_set_for(we, prev=None):
+    """Build the next set for a workout exercise, pre-filled with sensible defaults.
+
+    Reps/weight: the same set number from the previous workout, else the set above it in
+    this workout, else the last set of the previous workout.
+    Rest: the set above it, else the previous workout's set, else the user's default.
+    """
+    if prev is None:
+        prev = previous_sets(current_user, we.exercise_id, exclude_workout_id=we.workout_id)
+    i = len(we.sets)
+    same = prev[i] if i < len(prev) else None
+    above = we.sets[-1] if we.sets else None
+    source = same or above or (prev[-1] if prev else None)
+    rest_source = above or same
+    return SetEntry(
+        position=i,
+        reps=source.reps if source else None,
+        weight=source.weight if source else None,
+        rest_seconds=rest_source.rest_seconds if rest_source else (we.rest_seconds or current_user.default_rest_seconds),
     )
+
+
+def add_exercise_to_workout(workout, exercise, sets=1):
+    position = max((we.position for we in workout.exercises), default=-1) + 1
+    we = WorkoutExercise(exercise=exercise, position=position, rest_seconds=current_user.default_rest_seconds)
     workout.exercises.append(we)
     prev = previous_sets(current_user, exercise.id, exclude_workout_id=workout.id)
-    for i in range(max(1, sets)):
-        p = prev[i] if i < len(prev) else (prev[-1] if prev else None)
-        we.sets.append(
-            SetEntry(
-                position=i,
-                reps=reps if reps is not None else (p.reps if p else None),
-                weight=weight if weight is not None else (p.weight if p else None),
-            )
-        )
+    for _ in range(max(1, sets)):
+        we.sets.append(new_set_for(we, prev))
     return we
 
 
@@ -77,12 +89,44 @@ def start_workout(user, template=None):
     db.session.add(workout)
     db.session.flush()
     if template:
-        for te in template.exercises:
-            add_exercise_to_workout(
-                workout, te.exercise, sets=te.sets, reps=te.reps, weight=te.weight, rest_seconds=te.rest_seconds
+        for pos, te in enumerate(template.exercises):
+            we = WorkoutExercise(
+                exercise_id=te.exercise_id,
+                position=pos,
+                rest_seconds=te.sets[0].rest_seconds if te.sets else user.default_rest_seconds,
+                template_exercise_id=te.id,
             )
+            workout.exercises.append(we)
+            prev = previous_sets(user, te.exercise_id, exclude_workout_id=workout.id)
+            for i, ts in enumerate(te.sets):
+                p = prev[i] if i < len(prev) else None
+                we.sets.append(
+                    SetEntry(
+                        position=i,
+                        reps=ts.reps if ts.reps is not None else (p.reps if p else None),
+                        weight=ts.weight if ts.weight is not None else (p.weight if p else None),
+                        rest_seconds=ts.rest_seconds,
+                    )
+                )
     db.session.commit()
     return workout
+
+
+def _update_template_from_workout(workout):
+    """Copy the reps/weight the user actually did back into the template's sets,
+    so they become the defaults next time the template is used."""
+    template = db.session.get(WorkoutTemplate, workout.template_id) if workout.template_id else None
+    if template is None or template.user_id != workout.user_id:
+        return
+    for we in workout.exercises:
+        te = db.session.get(TemplateExercise, we.template_exercise_id) if we.template_exercise_id else None
+        # The template may have been edited mid-workout; only update rows that still match.
+        if te is None or te.template_id != template.id or te.exercise_id != we.exercise_id:
+            continue
+        for s, ts in zip(we.sets, te.sets):
+            if s.completed:
+                ts.reps = s.reps
+                ts.weight = s.weight
 
 
 def finish_workout(workout):
@@ -94,24 +138,18 @@ def finish_workout(workout):
         if not we.sets:
             workout.exercises.remove(we)
     workout.finished_at = utcnow()
+    _update_template_from_workout(workout)
     db.session.commit()
 
 
 def save_workout_as_template(user, workout, name):
     template = WorkoutTemplate(user_id=user.id, name=name or workout.name)
     for i, we in enumerate(workout.exercises):
-        done = [s for s in we.sets if s.completed] or we.sets
-        last = done[-1] if done else None
-        template.exercises.append(
-            TemplateExercise(
-                exercise_id=we.exercise_id,
-                position=i,
-                sets=max(1, len(done)),
-                reps=last.reps if last else None,
-                weight=last.weight if last else None,
-                rest_seconds=we.rest_seconds,
-            )
-        )
+        done = [s for s in we.sets if s.completed] or list(we.sets)
+        te = TemplateExercise(exercise_id=we.exercise_id, position=i)
+        for j, s in enumerate(done):
+            te.sets.append(TemplateSet(position=j, reps=s.reps, weight=s.weight, rest_seconds=s.rest_seconds))
+        template.exercises.append(te)
     db.session.add(template)
     db.session.commit()
     return template
@@ -126,6 +164,7 @@ def set_to_dict(s):
         "position": s.position,
         "reps": s.reps,
         "weight": s.weight,
+        "rest_seconds": s.rest_seconds,
         "completed": s.completed,
     }
 
@@ -136,7 +175,6 @@ def workout_exercise_to_dict(we):
         "id": we.id,
         "exercise_id": we.exercise_id,
         "name": we.exercise.name,
-        "rest_seconds": we.rest_seconds,
         "sets": [set_to_dict(s) for s in we.sets],
         "previous": [{"reps": p.reps, "weight": p.weight} for p in prev],
     }
@@ -150,7 +188,24 @@ def workout_to_dict(workout):
         "started_at": workout.started_at.isoformat() + "Z",
         "finished_at": workout.finished_at.isoformat() + "Z" if workout.finished_at else None,
         "unit": current_user.unit,
+        "from_template": workout.template_id is not None,
         "exercises": [workout_exercise_to_dict(we) for we in workout.exercises],
+    }
+
+
+def template_to_dict(template):
+    return {
+        "name": template.name or "",
+        "notes": template.notes or "",
+        "exercises": [
+            {
+                "name": te.exercise.name,
+                "sets": [
+                    {"reps": ts.reps, "weight": ts.weight, "rest_seconds": ts.rest_seconds} for ts in te.sets
+                ],
+            }
+            for te in template.exercises
+        ],
     }
 
 

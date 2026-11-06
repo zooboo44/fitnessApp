@@ -7,6 +7,7 @@ from .extensions import db
 from .models import Exercise, SetEntry, Workout, WorkoutExercise, utcnow
 from .services import (
     add_exercise_to_workout,
+    new_set_for,
     owned_or_404,
     parse_float,
     parse_int,
@@ -120,12 +121,7 @@ def delete_workout_exercise(we_id):
 @login_required
 def add_set(we_id):
     we = _workout_exercise(we_id)
-    last = we.sets[-1] if we.sets else None
-    s = SetEntry(
-        position=(last.position + 1) if last else 0,
-        reps=last.reps if last else None,
-        weight=last.weight if last else None,
-    )
+    s = new_set_for(we)
     we.sets.append(s)
     db.session.commit()
     return set_to_dict(s), 201
@@ -140,6 +136,8 @@ def update_set(set_id):
         s.reps = parse_int(data["reps"], 0, 1000)
     if "weight" in data:
         s.weight = parse_float(data["weight"])
+    if "rest_seconds" in data:
+        s.rest_seconds = parse_int(data["rest_seconds"], 0, 3600) or 0
     if "completed" in data:
         s.completed = bool(data["completed"])
         s.completed_at = utcnow() if s.completed else None

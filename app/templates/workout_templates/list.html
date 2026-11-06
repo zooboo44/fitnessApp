@@ -13,20 +13,16 @@
     <span class="small muted">{{ t.exercises|length }} exercise{{ 's' if t.exercises|length != 1 }}</span>
   </div>
   {% if t.notes %}<p class="small muted">{{ t.notes }}</p>{% endif %}
-  <table class="sets compact">
-    <thead><tr><th>Exercise</th><th>Sets</th><th>Reps</th><th>{{ current_user.unit }}</th><th>Rest</th></tr></thead>
-    <tbody>
-      {% for te in t.exercises %}
-      <tr>
-        <td>{{ te.exercise.name }}</td>
-        <td>{{ te.sets }}</td>
-        <td>{{ te.reps if te.reps is not none else '–' }}</td>
-        <td>{{ te.weight|weight or '–' }}</td>
-        <td>{{ te.rest_seconds|duration }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <ul class="plain tpl-summary">
+    {% for te in t.exercises %}
+    <li>
+      <strong>{{ te.exercise.name }}</strong>
+      <span class="small muted">
+        {% for ts in te.sets %}{{ ts.weight|weight or '–' }}&nbsp;×&nbsp;{{ ts.reps if ts.reps is not none else '–' }}{{ ', ' if not loop.last }}{% endfor %}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
   <div class="actions">
     <form method="post" action="{{ url_for('main.workout_start') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

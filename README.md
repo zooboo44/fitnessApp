@@ -2,12 +2,13 @@
 
 A mobile-friendly fitness web app built with Python and Flask.
 
-- **Workout templates:** build routines with exercises, sets, target reps, weight and rest time.
+- **Workout templates:** build routines where every set is its own entry with its own weight, reps and rest time.
+- **Templates learn from you:** when you finish a workout started from a template, the weight and reps of each completed set become that template's new defaults. Discarded workouts change nothing.
 - **Start a workout** from a template, or start empty and add exercises as you go.
-- **Track every set:** weight and reps, with your previous performance shown next to each set (tap it to copy).
-- **Rest timer:** starts automatically when you tick off a set, using that exercise's rest time. It has ±15s and Skip buttons, beeps and vibrates when time is up, and keeps running if you reload the page. You can also start one manually.
+- **Track every set:** each set is its own row. **+ Add set** pre-fills weight and reps from the same set number in your previous workout of that exercise. If there was no such set, it copies the set above. Previous values are shown next to each set (tap to copy).
+- **A rest timer after every set:** each set gets its own timer row, and you can adjust its length with − and +. The timer starts when you tick the set's **Done** box. It counts down inline, and a bar pinned to the bottom of the screen appears when you scroll away. It beeps and vibrates when time is up and survives a page reload.
 - **History:** duration, completed sets and total volume for each workout. You can save any workout as a new template.
-- **Sign in with Google or Apple.** Accounts with the same verified email are linked automatically.
+- **Sign in with email + password, Google or Apple.** Accounts with the same verified email are linked automatically, and SSO users can add a password in Settings.
 - Built-in exercise library (about 50 exercises). Any new name you type becomes a custom exercise.
 - Choose kg or lb, and set a default rest time.
 
@@ -20,7 +21,7 @@ docker compose up --build
 
 Open http://localhost:8000. This starts the app (gunicorn) and PostgreSQL. Data is stored in the `pgdata` volume.
 
-To try the app before you have SSO credentials, set `DEV_LOGIN=1` in `.env`. The login page then shows an email-only sign-in form. **Never enable it in production**, because it lets anyone sign in as any email.
+Create an account with your email and a password. Google and Apple are optional and only appear once configured.
 
 Run the image on its own with SQLite:
 
@@ -33,7 +34,7 @@ docker run -p 8000:8000 --env-file .env -e DATABASE_URL=sqlite:////data/fitness.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest
-DEV_LOGIN=1 .venv/bin/flask --app wsgi:app run --debug
+FLASK_DEBUG=1 .venv/bin/flask --app wsgi:app run
 .venv/bin/python -m pytest
 ```
 
@@ -57,6 +58,10 @@ The app generates the short-lived ES256 client secret that Apple requires on eac
 
 A login button only appears for a provider whose credentials are configured.
 
+### How email accounts and SSO fit together
+- A password account and an SSO login with the same **verified** email become one account.
+- Signing up with a password doesn't prove you own the email. So if Google or Apple later verifies that address, the existing password is removed and the user is asked to set a new one. This stops someone from registering another person's email in advance to take over their account.
+
 ## Configuration
 
 | Variable | Purpose |
@@ -67,7 +72,6 @@ A login button only appears for a provider whose credentials are configured.
 | `SESSION_COOKIE_SECURE` | `1` when served over HTTPS. |
 | `PROXY_COUNT` | Number of reverse proxies in front of the app, so `X-Forwarded-*` headers are trusted. The default is `1`. |
 | `GOOGLE_*`, `APPLE_*` | SSO credentials, as described above. |
-| `DEV_LOGIN` | `1` enables the email-only test login. Local use only. |
 
 ## Project layout
 
@@ -84,5 +88,6 @@ tests/             pytest suite
 ```
 
 ## Notes and limitations
+- There are no password-reset emails yet (that needs an SMTP provider). Users who sign in with SSO can set or change a password in Settings.
 - The database schema is created with `db.create_all()` on start-up. Adding Alembic (Flask-Migrate) is the next step before changing models on a live database.
 - Changing the unit setting relabels weights; it doesn't convert numbers already logged.

@@ -1,8 +1,10 @@
+import json
+
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from .extensions import db
-from .models import Exercise, TemplateExercise, Workout, WorkoutTemplate
+from .models import Exercise, TemplateExercise, TemplateSet, Workout, WorkoutTemplate
 from .services import (
     active_workout,
     exercise_names_for,
@@ -12,6 +14,7 @@ from .services import (
     parse_int,
     save_workout_as_template,
     start_workout,
+    template_to_dict,
 )
 
 bp = Blueprint("main", __name__)
@@ -43,40 +46,61 @@ def template_list():
 
 
 def _save_template_from_form(template):
-    name = (request.form.get("name") or "").strip()
+    """The template editor posts its contents as JSON in a hidden `payload` field."""
+    try:
+        data = json.loads(request.form.get("payload") or "{}")
+    except ValueError:
+        return "Could not read the template — please try again."
+    name = str(data.get("name") or "").strip()
     if not name:
         return "Give the template a name."
-    names = request.form.getlist("exercise_name")
-    sets = request.form.getlist("sets")
-    reps = request.form.getlist("reps")
-    weights = request.form.getlist("weight")
-    rests = request.form.getlist("rest_seconds")
 
     rows = []
-    for i, ex_name in enumerate(names):
-        if not ex_name.strip():
+    for ex in data.get("exercises") or []:
+        ex_name = str(ex.get("name") or "").strip()
+        sets = ex.get("sets") or []
+        if not ex_name or not sets:
             continue
-        ex = Exercise.get_or_create(current_user, ex_name)
-        rows.append(
-            TemplateExercise(
-                exercise_id=ex.id,
-                position=len(rows),
-                sets=parse_int(sets[i] if i < len(sets) else None, 1, 50) or 3,
-                reps=parse_int(reps[i] if i < len(reps) else None, 0, 1000),
-                weight=parse_float(weights[i] if i < len(weights) else None),
-                rest_seconds=parse_int(rests[i] if i < len(rests) else None, 0, 3600)
-                or current_user.default_rest_seconds,
+        exercise = Exercise.get_or_create(current_user, ex_name)
+        te = TemplateExercise(exercise_id=exercise.id, position=len(rows))
+        for i, st in enumerate(sets[:50]):
+            te.sets.append(
+                TemplateSet(
+                    position=i,
+                    reps=parse_int(st.get("reps"), 0, 1000),
+                    weight=parse_float(st.get("weight")),
+                    rest_seconds=parse_int(st.get("rest_seconds"), 0, 3600)
+                    if st.get("rest_seconds") not in (None, "")
+                    else current_user.default_rest_seconds,
+                )
             )
-        )
+        rows.append(te)
     if not rows:
-        return "Add at least one exercise."
+        return "Add at least one exercise with at least one set."
 
     template.name = name[:120]
-    template.notes = (request.form.get("notes") or "").strip() or None
+    template.notes = str(data.get("notes") or "").strip() or None
     template.exercises.clear()
     db.session.flush()
     template.exercises.extend(rows)
     return None
+
+
+def _render_template_form(template, payload=None):
+    return render_template(
+        "workout_templates/form.html",
+        template=template,
+        payload=payload or template_to_dict(template),
+        exercise_names=exercise_names_for(current_user),
+    )
+
+
+def _posted_payload():
+    """Re-show what the user typed after a validation error."""
+    try:
+        return json.loads(request.form.get("payload") or "{}") or None
+    except ValueError:
+        return None
 
 
 @bp.route("/templates/new", methods=["GET", "POST"])
@@ -93,9 +117,8 @@ def template_new():
             db.session.commit()
             flash("Template created.", "success")
             return redirect(url_for("main.template_list"))
-    return render_template(
-        "workout_templates/form.html", template=template, exercise_names=exercise_names_for(current_user)
-    )
+        return _render_template_form(template, _posted_payload())
+    return _render_template_form(template)
 
 
 @bp.route("/templates/<int:template_id>/edit", methods=["GET", "POST"])
@@ -107,14 +130,11 @@ def template_edit(template_id):
         if error:
             db.session.rollback()
             flash(error, "error")
-            template = owned_or_404(WorkoutTemplate, template_id)
-        else:
-            db.session.commit()
-            flash("Template saved.", "success")
-            return redirect(url_for("main.template_list"))
-    return render_template(
-        "workout_templates/form.html", template=template, exercise_names=exercise_names_for(current_user)
-    )
+            return _render_template_form(owned_or_404(WorkoutTemplate, template_id), _posted_payload())
+        db.session.commit()
+        flash("Template saved.", "success")
+        return redirect(url_for("main.template_list"))
+    return _render_template_form(template)
 
 
 @bp.route("/templates/<int:template_id>/delete", methods=["POST"])
@@ -207,6 +227,23 @@ def history():
 @bp.route("/settings", methods=["GET", "POST"])
 @login_required
 def settings():
+    if request.method == "POST" and request.form.get("form") == "password":
+        from .auth import MIN_PASSWORD_LENGTH
+
+        new = request.form.get("new_password") or ""
+        if current_user.password_hash and not current_user.check_password(request.form.get("current_password") or ""):
+            flash("Current password is incorrect.", "error")
+        elif len(new) < MIN_PASSWORD_LENGTH:
+            flash(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.", "error")
+        elif new != request.form.get("confirm"):
+            flash("Passwords don't match.", "error")
+        elif not current_user.email:
+            flash("Your account has no email address, so a password can't be used to sign in.", "error")
+        else:
+            current_user.set_password(new)
+            db.session.commit()
+            flash("Password updated.", "success")
+        return redirect(url_for("main.settings"))
     if request.method == "POST":
         current_user.name = (request.form.get("name") or "").strip()[:255] or None
         if request.form.get("unit") in ("kg", "lb"):
