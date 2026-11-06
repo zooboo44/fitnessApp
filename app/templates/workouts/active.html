@@ -7,8 +7,8 @@
     <div class="elapsed" title="Elapsed time"><span id="elapsed">0:00</span></div>
   </div>
 
-  {% if workout.template_id %}
-  <p class="small muted">Started from a template — the weights and reps you complete will become its new defaults.</p>
+  {% if template %}
+  <p class="small muted">From template “{{ template.name }}” — when you finish, you can choose whether to update it.</p>
   {% endif %}
   <div id="exercises"><p class="muted">Loading…</p></div>
 
@@ -25,10 +25,14 @@
   </label>
 
   <div class="actions">
-    <form method="post" action="{{ url_for('main.workout_finish', workout_id=workout.id) }}" id="finish-form">
+    {% if template %}
+    <button type="button" class="btn btn-primary" id="finish-open">Finish workout</button>
+    {% else %}
+    <form method="post" action="{{ url_for('main.workout_finish', workout_id=workout.id) }}" class="finish-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-primary" type="submit">Finish workout</button>
     </form>
+    {% endif %}
     <form method="post" action="{{ url_for('main.workout_delete', workout_id=workout.id) }}"
           onsubmit="return confirm('Discard this workout? Everything logged will be lost.')">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -36,6 +40,32 @@
     </form>
   </div>
 </div>
+
+{% if template %}
+<dialog id="finish-dialog" class="sheet" aria-labelledby="finish-title">
+  <form method="post" action="{{ url_for('main.workout_finish', workout_id=workout.id) }}" class="finish-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="template_update" value="none">
+    <h2 id="finish-title">Finish workout</h2>
+    <p class="small muted">This workout came from <strong>{{ template.name }}</strong>. Update the template too?</p>
+    <div class="choice-list">
+      <button class="choice" type="submit" value="none">
+        <strong>Save workout only</strong>
+        <span>Leave the template exactly as it is.</span>
+      </button>
+      <button class="choice" type="submit" value="values">
+        <strong>Save + update weights &amp; reps</strong>
+        <span>Completed sets become the template's new targets. Sets and exercises stay the same.</span>
+      </button>
+      <button class="choice" type="submit" value="full">
+        <strong>Save + update weights, reps &amp; exercises</strong>
+        <span>The template copies this workout: added or removed sets and exercises, order and rest times.</span>
+      </button>
+    </div>
+    <button type="button" class="btn btn-block" id="finish-cancel">Keep training</button>
+  </form>
+</dialog>
+{% endif %}
 
 <div id="rest-timer" class="rest-timer" hidden>
   <div class="rest-progress"><div id="rest-bar"></div></div>

@@ -313,12 +313,25 @@
   });
 
   // Flush pending edits before finishing so nothing typed is lost.
-  document.getElementById("finish-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    await flushPending();
-    timer.stop();
-    e.target.submit();
+  document.querySelectorAll(".finish-form").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      // form.submit() drops the clicked button's value, so copy the choice into the form.
+      const choice = form.querySelector('input[name="template_update"]');
+      if (choice && e.submitter && e.submitter.value) choice.value = e.submitter.value;
+      form.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+      await flushPending();
+      timer.stop();
+      form.submit();
+    });
   });
+
+  const finishDialog = document.getElementById("finish-dialog");
+  if (finishDialog) {
+    document.getElementById("finish-open").addEventListener("click", () => finishDialog.showModal());
+    document.getElementById("finish-cancel").addEventListener("click", () => finishDialog.close());
+    finishDialog.addEventListener("click", (e) => { if (e.target === finishDialog) finishDialog.close(); });
+  }
 
   async function flushPending() {
     const calls = [];

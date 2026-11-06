@@ -15,6 +15,10 @@ from .services import (
     save_workout_as_template,
     start_workout,
     template_to_dict,
+    workout_template,
+    TEMPLATE_KEEP,
+    TEMPLATE_UPDATE_MODES,
+    TEMPLATE_VALUES,
 )
 
 bp = Blueprint("main", __name__)
@@ -171,7 +175,10 @@ def workout_view(workout_id):
     workout = owned_or_404(Workout, workout_id)
     if workout.is_active:
         return render_template(
-            "workouts/active.html", workout=workout, exercise_names=exercise_names_for(current_user)
+            "workouts/active.html",
+            workout=workout,
+            template=workout_template(workout),
+            exercise_names=exercise_names_for(current_user),
         )
     return render_template("workouts/detail.html", workout=workout)
 
@@ -181,8 +188,16 @@ def workout_view(workout_id):
 def workout_finish(workout_id):
     workout = owned_or_404(Workout, workout_id)
     if workout.is_active:
-        finish_workout(workout)
-        flash("Workout saved. Nice work!", "success")
+        mode = request.form.get("template_update", TEMPLATE_KEEP)
+        if mode not in TEMPLATE_UPDATE_MODES:
+            mode = TEMPLATE_KEEP
+        template = workout_template(workout)
+        updated = finish_workout(workout, mode)
+        if updated:
+            what = "weights & reps" if mode == TEMPLATE_VALUES else "weights, reps & exercises"
+            flash(f"Workout saved and template “{template.name}” updated ({what}). Nice work!", "success")
+        else:
+            flash("Workout saved. Nice work!", "success")
     return redirect(url_for("main.workout_view", workout_id=workout.id))
 
 

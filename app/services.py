@@ -112,16 +112,38 @@ def start_workout(user, template=None):
     return workout
 
 
-def _update_template_from_workout(workout):
-    """Copy the reps/weight the user actually did back into the template's sets,
-    so they become the defaults next time the template is used."""
+# How finishing a template workout affects the template:
+TEMPLATE_KEEP = "none"  # save the workout only
+TEMPLATE_VALUES = "values"  # update weight/reps of the template's existing sets
+TEMPLATE_FULL = "full"  # also take on added/removed sets and exercises (and order, rest times)
+TEMPLATE_UPDATE_MODES = (TEMPLATE_KEEP, TEMPLATE_VALUES, TEMPLATE_FULL)
+
+
+def workout_template(workout):
+    """The template this workout was started from, if it still exists."""
     template = db.session.get(WorkoutTemplate, workout.template_id) if workout.template_id else None
     if template is None or template.user_id != workout.user_id:
-        return
+        return None
+    return template
+
+
+def _matching_template_exercise(template, we):
+    """The template row a workout exercise came from. The template may have been edited
+    mid-workout, so only rows that still belong to it with the same exercise count."""
+    if not we.template_exercise_id:
+        return None
+    te = db.session.get(TemplateExercise, we.template_exercise_id)
+    if te is None or te.template_id != template.id or te.exercise_id != we.exercise_id:
+        return None
+    return te
+
+
+def _update_template_values(template, workout):
+    """Copy weight/reps of completed sets into the matching template sets.
+    Set count, exercises and rest times stay as they are."""
     for we in workout.exercises:
-        te = db.session.get(TemplateExercise, we.template_exercise_id) if we.template_exercise_id else None
-        # The template may have been edited mid-workout; only update rows that still match.
-        if te is None or te.template_id != template.id or te.exercise_id != we.exercise_id:
+        te = _matching_template_exercise(template, we)
+        if te is None:
             continue
         for s, ts in zip(we.sets, te.sets):
             if s.completed:
@@ -129,7 +151,38 @@ def _update_template_from_workout(workout):
                 ts.weight = s.weight
 
 
-def finish_workout(workout):
+def _update_template_full(template, workout):
+    """Rebuild the template's exercises and sets to match the workout: added or removed
+    sets and exercises, the exercise order and each set's rest time all carry over.
+    Weight/reps come from completed sets; a set that wasn't done keeps the template's
+    old target for that position (or the workout's value if it's a new set)."""
+    if not workout.exercises:
+        return False
+    rebuilt = []
+    used = set()
+    for pos, we in enumerate(workout.exercises):
+        te = _matching_template_exercise(template, we)
+        if te is None or te.id in used:
+            te = TemplateExercise(exercise_id=we.exercise_id)
+        else:
+            used.add(te.id)
+        te.position = pos
+        old_sets = list(te.sets)
+        new_sets = []
+        for i, s in enumerate(we.sets):
+            old = old_sets[i] if i < len(old_sets) else None
+            source = s if (s.completed or old is None) else old
+            new_sets.append(
+                TemplateSet(position=i, reps=source.reps, weight=source.weight, rest_seconds=s.rest_seconds)
+            )
+        te.sets = new_sets
+        rebuilt.append(te)
+    template.exercises = rebuilt  # rows no longer listed are deleted (delete-orphan)
+    return True
+
+
+def finish_workout(workout, template_update=TEMPLATE_KEEP):
+    """Mark the workout finished. Returns True if its template was changed."""
     # Drop sets that were never touched, then exercises left with no sets.
     for we in list(workout.exercises):
         for s in list(we.sets):
@@ -138,8 +191,16 @@ def finish_workout(workout):
         if not we.sets:
             workout.exercises.remove(we)
     workout.finished_at = utcnow()
-    _update_template_from_workout(workout)
+
+    updated = False
+    template = workout_template(workout)
+    if template is not None and template_update == TEMPLATE_VALUES:
+        _update_template_values(template, workout)
+        updated = True
+    elif template is not None and template_update == TEMPLATE_FULL:
+        updated = _update_template_full(template, workout)
     db.session.commit()
+    return updated
 
 
 def save_workout_as_template(user, workout, name):

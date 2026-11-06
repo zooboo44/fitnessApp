@@ -219,7 +219,8 @@ def test_workout_from_template_and_template_learns(client, app):
     for s in bench["sets"][:2]:
         r = client.patch(f"/api/sets/{s['id']}", json={"reps": 7, "weight": "62.5", "completed": True})
         assert r.status_code == 200 and r.get_json()["completed"] is True
-    client.post(f"/workouts/{wid}/finish")
+    r = client.post(f"/workouts/{wid}/finish", data={"template_update": "values"}, follow_redirects=True)
+    assert "updated (weights &amp; reps)" in r.data.decode()
 
     with app.app_context():
         w = db.session.get(Workout, wid)
@@ -237,6 +238,94 @@ def test_workout_from_template_and_template_learns(client, app):
 
     # Finished workouts are read-only through the API
     assert client.patch(f"/api/sets/{bench['sets'][2]['id']}", json={"reps": 1}).status_code == 409
+
+
+def _template_shape(app, tid):
+    with app.app_context():
+        t = db.session.get(WorkoutTemplate, tid)
+        return [
+            (te.exercise.name, [(s.weight, s.reps, s.rest_seconds) for s in te.sets]) for te in t.exercises
+        ]
+
+
+def _template_workout_with_changes(client, app):
+    """Start Push Day, then: do bench sets 1-2 heavier, delete bench set 3, add a 4th-style
+    extra set, drop "My Custom Press", add Dips. Returns (template id, workout id)."""
+    make_template(client)
+    with app.app_context():
+        tid = WorkoutTemplate.query.one().id
+    wid = start(client, tid)
+    data = client.get(f"/api/workouts/{wid}").get_json()
+    bench, custom = data["exercises"]
+    for s in bench["sets"][:2]:
+        client.patch(f"/api/sets/{s['id']}", json={"reps": 7, "weight": 62.5, "completed": True})
+    client.delete(f"/api/sets/{bench['sets'][2]['id']}")
+    extra = client.post(f"/api/workout-exercises/{bench['id']}/sets").get_json()
+    client.patch(f"/api/sets/{extra['id']}", json={"reps": 5, "weight": 70, "rest_seconds": 200, "completed": True})
+    client.delete(f"/api/workout-exercises/{custom['id']}")
+    dips = client.post(f"/api/workouts/{wid}/exercises", json={"name": "Chest Dip"}).get_json()
+    client.patch(f"/api/sets/{dips['sets'][0]['id']}", json={"reps": 12, "weight": 0, "completed": True})
+    return tid, wid
+
+
+ORIGINAL_SHAPE = [
+    ("Bench Press", [(60, 8, 120), (60, 8, 120), (65, 6, 180)]),
+    ("My Custom Press", [(None, 12, 60)]),
+]
+
+
+def test_finish_without_updating_template(client, app):
+    register(client)
+    tid, wid = _template_workout_with_changes(client, app)
+    r = client.post(f"/workouts/{wid}/finish", data={"template_update": "none"}, follow_redirects=True)
+    assert b"Workout saved. Nice work!" in r.data
+    assert _template_shape(app, tid) == ORIGINAL_SHAPE
+    # A missing or unknown choice also leaves the template alone
+    wid2 = start(client, tid)
+    client.post(f"/workouts/{wid2}/finish", data={"template_update": "bogus"})
+    assert _template_shape(app, tid) == ORIGINAL_SHAPE
+
+
+def test_finish_updating_template_values_only(client, app):
+    register(client)
+    tid, wid = _template_workout_with_changes(client, app)
+    client.post(f"/workouts/{wid}/finish", data={"template_update": "values"})
+    # Same sets and exercises; positions 1-2 got the new numbers. Position 3 in the workout
+    # is now the extra 70x5 set, which was completed, so it updates template set 3.
+    assert _template_shape(app, tid) == [
+        ("Bench Press", [(62.5, 7, 120), (62.5, 7, 120), (70, 5, 180)]),
+        ("My Custom Press", [(None, 12, 60)]),
+    ]
+
+
+def test_finish_updating_template_values_and_exercises(client, app):
+    register(client)
+    tid, wid = _template_workout_with_changes(client, app)
+    r = client.post(f"/workouts/{wid}/finish", data={"template_update": "full"}, follow_redirects=True)
+    assert "weights, reps &amp; exercises" in r.data.decode()
+    assert _template_shape(app, tid) == [
+        ("Bench Press", [(62.5, 7, 120), (62.5, 7, 120), (70, 5, 200)]),
+        ("Chest Dip", [(0, 12, 90)]),
+    ]
+    # Next time the template is used it follows the new shape
+    wid2 = start(client, tid)
+    ex = client.get(f"/api/workouts/{wid2}").get_json()["exercises"]
+    assert [e["name"] for e in ex] == ["Bench Press", "Chest Dip"]
+    assert [(s["weight"], s["reps"]) for s in ex[0]["sets"]] == [(62.5, 7), (62.5, 7), (70, 5)]
+
+
+def test_full_update_keeps_targets_for_sets_not_done(client, app):
+    register(client)
+    make_template(client)
+    with app.app_context():
+        tid = WorkoutTemplate.query.one().id
+    wid = start(client, tid)
+    bench = client.get(f"/api/workouts/{wid}").get_json()["exercises"][0]
+    # Only set 1 done; user typed a different weight into set 3 but never did it
+    client.patch(f"/api/sets/{bench['sets'][0]['id']}", json={"reps": 9, "completed": True})
+    client.patch(f"/api/sets/{bench['sets'][2]['id']}", json={"weight": 999})
+    client.post(f"/workouts/{wid}/finish", data={"template_update": "full"})
+    assert _template_shape(app, tid)[0] == ("Bench Press", [(60, 9, 120), (60, 8, 120), (65, 6, 180)])
 
 
 def test_discarded_workout_does_not_change_template(client, app):

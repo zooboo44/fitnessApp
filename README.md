@@ -3,7 +3,12 @@
 A mobile-friendly fitness web app built with Python and Flask.
 
 - **Workout templates:** build routines where every set is its own entry with its own weight, reps and rest time.
-- **Templates learn from you:** when you finish a workout started from a template, the weight and reps of each completed set become that template's new defaults. Discarded workouts change nothing.
+- **Templates learn from you:** when you finish a workout started from a template, you pick one of three options:
+  - **Save workout only:** the template is left unchanged.
+  - **Save + update weights & reps:** the weight and reps of each completed set become the targets for that template set. The number of sets and exercises stays the same.
+  - **Save + update weights, reps & exercises:** the template is rebuilt to match the workout. Added or removed sets, added or removed exercises, exercise order and rest times all carry over. A set you didn't complete keeps its old target.
+
+  Discarding a workout never changes the template.
 - **Start a workout** from a template, or start empty and add exercises as you go.
 - **Track every set:** each set is its own row. **+ Add set** pre-fills weight and reps from the same set number in your previous workout of that exercise. If there was no such set, it copies the set above. Previous values are shown next to each set (tap to copy).
 - **A rest timer after every set:** each set gets its own timer row, and you can adjust its length with − and +. The timer starts when you tick the set's **Done** box. It counts down inline, and a bar pinned to the bottom of the screen appears when you scroll away. It beeps and vibrates when time is up and survives a page reload.

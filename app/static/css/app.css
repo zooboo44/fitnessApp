@@ -233,3 +233,19 @@ table.sets.live.tpl-sets th:nth-child(5), table.sets.live.tpl-sets td:nth-child(
 .divider { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .85rem; margin: 18px 0 12px; }
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .card-title { margin: 0 0 8px; font-size: 1.05rem; }
+
+/* finish-workout dialog */
+dialog.sheet {
+  width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 18px;
+  border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text);
+}
+dialog.sheet::backdrop { background: rgba(0, 0, 0, .45); }
+dialog.sheet h2 { margin: 0 0 4px; }
+.choice-list { display: grid; gap: 8px; margin: 14px 0; }
+.choice {
+  display: grid; gap: 2px; text-align: left; padding: 12px 14px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit;
+}
+.choice:hover, .choice:focus-visible { border-color: var(--primary); outline: none; }
+.choice span { font-size: .85rem; color: var(--muted); }
+.choice:disabled { opacity: .6; cursor: progress; }
