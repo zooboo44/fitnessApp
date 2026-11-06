@@ -442,3 +442,25 @@ def test_pages_render(client):
 
 def test_healthz(client):
     assert client.get("/healthz").get_json() == {"status": "ok"}
+
+
+def test_outdated_schema_is_reported(tmp_path):
+    import sqlite3
+
+    from app import SchemaOutdated, check_schema
+
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE user (id INTEGER PRIMARY KEY, email VARCHAR(255))")  # pre-password schema
+    con.commit()
+    con.close()
+    app = create_app({"SQLALCHEMY_DATABASE_URI": f"sqlite:///{path}", "AUTO_INIT_DB": False, "TESTING": True})
+    with app.app_context():
+        db.create_all()
+        with pytest.raises(SchemaOutdated, match="user.password_hash"):
+            check_schema()
+
+
+def test_insecure_secret_key_refused():
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        create_app({"SECRET_KEY": "change-me", "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:", "AUTO_INIT_DB": False})
