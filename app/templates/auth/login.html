@@ -8,14 +8,11 @@
   <form method="post" class="card form auth-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Email
-      <input type="email" name="email" value="{{ email }}" autocomplete="email" required autofocus>
+      <input type="email" name="email" value="{{ email }}" autocomplete="email" inputmode="email" required autofocus>
     </label>
-    <label>Password
-      <input type="password" name="password" autocomplete="current-password" required>
-    </label>
-    <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+    <button class="btn btn-primary btn-block" type="submit">Continue</button>
+    <p class="small muted">New here? Just enter your email — an account is created automatically.</p>
   </form>
-  <p class="small">New here? <a href="{{ url_for('auth.register') }}">Create an account</a></p>
 
   {% include "auth/_sso.html" %}
 </section>

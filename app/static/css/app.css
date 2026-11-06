@@ -249,3 +249,11 @@ dialog.sheet h2 { margin: 0 0 4px; }
 .choice:hover, .choice:focus-visible { border-color: var(--primary); outline: none; }
 .choice span { font-size: .85rem; color: var(--muted); }
 .choice:disabled { opacity: .6; cursor: progress; }
+
+/* typed rest time */
+.rest-time-input {
+  width: 4.2em; padding: 3px 4px; text-align: center; font-weight: 700;
+  font-variant-numeric: tabular-nums; background: var(--surface);
+}
+.set-timer .rest-time-input { display: inline-block; margin-left: 2px; }
+table.sets.live.tpl-sets .rest-time-input { width: 100%; padding: 8px 2px; }

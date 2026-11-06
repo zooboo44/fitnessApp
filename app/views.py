@@ -242,23 +242,6 @@ def history():
 @bp.route("/settings", methods=["GET", "POST"])
 @login_required
 def settings():
-    if request.method == "POST" and request.form.get("form") == "password":
-        from .auth import MIN_PASSWORD_LENGTH
-
-        new = request.form.get("new_password") or ""
-        if current_user.password_hash and not current_user.check_password(request.form.get("current_password") or ""):
-            flash("Current password is incorrect.", "error")
-        elif len(new) < MIN_PASSWORD_LENGTH:
-            flash(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.", "error")
-        elif new != request.form.get("confirm"):
-            flash("Passwords don't match.", "error")
-        elif not current_user.email:
-            flash("Your account has no email address, so a password can't be used to sign in.", "error")
-        else:
-            current_user.set_password(new)
-            db.session.commit()
-            flash("Password updated.", "success")
-        return redirect(url_for("main.settings"))
     if request.method == "POST":
         current_user.name = (request.form.get("name") or "").strip()[:255] or None
         if request.form.get("unit") in ("kg", "lb"):

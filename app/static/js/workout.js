@@ -185,18 +185,35 @@
         el("button", { type: "button", class: "timer-btn primary", onclick: () => timer.stop() }, "Skip"),
       );
     } else {
-      const changeRest = (delta) => {
-        s.rest_seconds = Math.max(0, Math.min(3600, (s.rest_seconds || 0) + delta));
+      const setRest = (secs) => {
+        s.rest_seconds = Math.max(0, Math.min(Duration.MAX, secs));
         refreshTimerRow(s.id);
         debounced(`set-${s.id}-rest_seconds`, () => api("PATCH", `/api/sets/${s.id}`, { rest_seconds: s.rest_seconds }));
       };
-      const label = s.rest_seconds > 0 ? fmtClock(s.rest_seconds) : "No rest";
+      // Type a rest time (90, 1:30, 2m, 1m30s) or nudge it with the buttons.
+      const input = el("input", {
+        type: "text", class: "rest-time-input", value: Duration.format(s.rest_seconds),
+        autocomplete: "off", enterkeyhint: "done", "aria-label": "Rest time (e.g. 90 or 1:30)",
+        title: "Type a rest time, e.g. 90, 1:30 or 2m",
+        onfocus: (e) => e.target.select(),
+        onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") { e.target.value = Duration.format(s.rest_seconds); e.target.blur(); } },
+        onchange: (e) => {
+          const secs = Duration.parse(e.target.value);
+          if (secs === null) {
+            toast("Couldn't read that rest time — try 90, 1:30 or 2m.");
+            e.target.value = Duration.format(s.rest_seconds);
+            return;
+          }
+          setRest(secs);
+        },
+      });
       box.append(
-        el("button", { type: "button", class: "timer-btn", "aria-label": "Shorter rest", disabled: s.rest_seconds <= 0, onclick: () => changeRest(-REST_STEP) }, "−"),
+        el("button", { type: "button", class: "timer-btn", "aria-label": `Rest ${REST_STEP} seconds less`, disabled: s.rest_seconds <= 0, onclick: () => setRest((s.rest_seconds || 0) - REST_STEP) }, `−${REST_STEP}`),
         el("span", { class: "set-timer-label" },
-          status === "rested" ? "✓ Rested " : "Rest ", el("strong", {}, label),
-          status === "waiting" && s.rest_seconds > 0 ? el("span", { class: "muted hint" }, " · starts when set is done") : null),
-        el("button", { type: "button", class: "timer-btn", "aria-label": "Longer rest", onclick: () => changeRest(REST_STEP) }, "+"),
+          status === "rested" ? "✓ Rested " : "Rest ", input,
+          status === "waiting" && s.rest_seconds > 0 ? el("span", { class: "muted hint" }, " · starts when set is done") : null,
+          s.rest_seconds <= 0 ? el("span", { class: "muted hint" }, " · no timer") : null),
+        el("button", { type: "button", class: "timer-btn", "aria-label": `Rest ${REST_STEP} seconds more`, onclick: () => setRest((s.rest_seconds || 0) + REST_STEP) }, `+${REST_STEP}`),
       );
     }
     return el("tr", { class: "timer-row" }, cell);

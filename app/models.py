@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 
 from flask_login import UserMixin
 from sqlalchemy import func
-from werkzeug.security import check_password_hash, generate_password_hash
 
 from .extensions import db
 
@@ -17,18 +16,11 @@ class User(UserMixin, db.Model):
     name = db.Column(db.String(255))
     unit = db.Column(db.String(2), nullable=False, default="lb")  # "lb" or "kg"
     default_rest_seconds = db.Column(db.Integer, nullable=False, default=90)
-    password_hash = db.Column(db.String(255))
     # True once an SSO provider has vouched for this email address.
     email_verified = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
 
     identities = db.relationship("OAuthIdentity", back_populates="user", cascade="all, delete-orphan")
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password) if password else None
-
-    def check_password(self, password):
-        return bool(self.password_hash) and check_password_hash(self.password_hash, password)
 
     @property
     def display_name(self):

@@ -51,8 +51,18 @@
           placeholder: "last", "aria-label": `Set ${i + 1} weight`, oninput: (e) => { s.weight = e.target.value; } })),
         el("td", {}, el("input", { type: "number", min: 0, step: 1, inputmode: "numeric", value: val(s.reps),
           "aria-label": `Set ${i + 1} reps`, oninput: (e) => { s.reps = e.target.value; } })),
-        el("td", {}, el("input", { type: "number", min: 0, max: 3600, step: 5, inputmode: "numeric", value: val(s.rest_seconds),
-          "aria-label": `Rest after set ${i + 1} (seconds)`, oninput: (e) => { s.rest_seconds = e.target.value; } })),
+        el("td", {}, el("input", { type: "text", class: "rest-time-input", autocomplete: "off",
+          value: s.rest_seconds === null || s.rest_seconds === "" ? "" : Duration.format(s.rest_seconds),
+          title: "Type a rest time, e.g. 90, 1:30 or 2m", "aria-label": `Rest after set ${i + 1} (e.g. 90 or 1:30)`,
+          onfocus: (e) => e.target.select(),
+          // Keep state current while typing, so pressing Enter to save the form uses it.
+          oninput: (e) => { const v = Duration.parse(e.target.value); if (v !== null) s.rest_seconds = v; },
+          onchange: (e) => {
+            const secs = Duration.parse(e.target.value);
+            if (secs === null) { e.target.value = Duration.format(s.rest_seconds || 0); return; }
+            s.rest_seconds = secs;
+            e.target.value = Duration.format(secs);
+          } })),
         el("td", {}, el("button", { type: "button", class: "icon-btn danger", title: "Delete set",
           onclick: () => { ex.sets.splice(i, 1); render(); } }, "✕")),
       ));
@@ -73,7 +83,7 @@
       ),
       el("table", { class: "sets live tpl-sets" },
         el("thead", {}, el("tr", {},
-          el("th", {}, "#"), el("th", {}, cfg.unit), el("th", {}, "Reps"), el("th", {}, "Rest (s)"), el("th", {}, ""),
+          el("th", {}, "#"), el("th", {}, cfg.unit), el("th", {}, "Reps"), el("th", {}, "Rest"), el("th", {}, ""),
         )),
         tbody,
       ),

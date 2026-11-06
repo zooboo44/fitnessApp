@@ -22,30 +22,9 @@
   <button class="btn btn-primary" type="submit">Save</button>
 </form>
 
-<form method="post" class="card form">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <input type="hidden" name="form" value="password">
-  <h2 class="card-title">{{ 'Change password' if current_user.password_hash else 'Set a password' }}</h2>
-  {% if not current_user.password_hash %}
-  <p class="small muted">Lets you sign in with your email and password as well as SSO.</p>
-  {% endif %}
-  {% if current_user.password_hash %}
-  <label>Current password
-    <input type="password" name="current_password" autocomplete="current-password" required>
-  </label>
-  {% endif %}
-  <label>New password
-    <input type="password" name="new_password" autocomplete="new-password" minlength="8" required>
-  </label>
-  <label>Confirm new password
-    <input type="password" name="confirm" autocomplete="new-password" minlength="8" required>
-  </label>
-  <button class="btn" type="submit">Save password</button>
-</form>
-
 <div class="card">
   <p class="small muted">Sign-in methods:
-    {% if current_user.password_hash %}Email &amp; password{{ ', ' if current_user.identities }}{% endif %}
+    {% if current_user.email %}Email{{ ', ' if current_user.identities }}{% endif %}
     {% for i in current_user.identities %}{{ i.provider|capitalize }}{{ ', ' if not loop.last }}{% endfor %}
   </p>
   <form method="post" action="{{ url_for('auth.logout') }}">

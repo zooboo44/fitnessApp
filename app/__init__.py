@@ -4,7 +4,7 @@ import time
 import click
 from flask import Flask, redirect, request, url_for
 from sqlalchemy import inspect
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import Config
@@ -117,6 +117,17 @@ def check_schema():
 def init_db():
     from .seed import seed_exercises
 
-    db.create_all()
+    try:
+        db.create_all()
+    except (OperationalError, ProgrammingError, IntegrityError) as exc:
+        # Another process (e.g. a second gunicorn worker) created the tables at the same
+        # moment. Try once more: create_all skips tables that now exist.
+        if "already exists" not in str(exc).lower() and "duplicate" not in str(exc).lower():
+            raise
+        db.session.rollback()
+        db.create_all()
     check_schema()
-    seed_exercises()
+    try:
+        seed_exercises()
+    except IntegrityError:
+        db.session.rollback()  # seeded concurrently by another process

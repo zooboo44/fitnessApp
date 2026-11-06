@@ -121,16 +121,9 @@ def _login_from_claims(provider, claims, name=None):
     else:
         user = None
         # Link to an existing account with the same verified email (e.g. Google then Apple,
-        # or an email/password account).
+        # or an account first created with the email sign-in).
         if email and email_verified:
             user = User.query.filter_by(email=email).first()
-            if user is not None and user.password_hash and not user.email_verified:
-                # Nobody proved they owned this address when the password was set, so it
-                # might belong to someone else who registered it first. Drop the password
-                # so only the verified owner keeps access.
-                user.set_password(None)
-                flash("Your password was reset because your email was verified with "
-                      f"{provider.capitalize()}. You can set a new one in Settings.", "success")
         if user is None:
             # An unverified email that already belongs to someone else is not stored.
             if email and User.query.filter_by(email=email).first():
@@ -157,12 +150,10 @@ def _finish_login(user):
     return redirect(next_url or url_for("main.dashboard"))
 
 
-MIN_PASSWORD_LENGTH = 8
-
-
 def _normalise_email(value):
     email = (value or "").strip().lower()
-    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 255:
+    local, _, domain = email.partition("@")
+    if not local or "." not in domain or " " in email or len(email) > 255:
         return None
     return email
 
@@ -172,6 +163,8 @@ def _normalise_email(value):
 
 @bp.route("/login", methods=["GET", "POST"])
 def login():
+    """Email-only sign-in: entering an email signs in to that account, creating it the
+    first time. There is no password or verification step (see README)."""
     if current_user.is_authenticated:
         return redirect(url_for("main.dashboard"))
     nxt = request.args.get("next")
@@ -180,46 +173,24 @@ def login():
 
     email = ""
     if request.method == "POST":
-        email = (request.form.get("email") or "").strip().lower()
-        user = User.query.filter_by(email=email).first() if email else None
-        if user and user.check_password(request.form.get("password") or ""):
-            return _finish_login(user)
-        if user and not user.password_hash and user.identities:
-            flash("This account signs in with "
-                  + " or ".join(sorted({i.provider.capitalize() for i in user.identities}))
-                  + ". Use that button below, then set a password in Settings if you want one.", "error")
+        email = request.form.get("email") or ""
+        normalised = _normalise_email(email)
+        if normalised is None:
+            flash("Enter a valid email address.", "error")
         else:
-            flash("Incorrect email or password.", "error")
+            user = User.query.filter_by(email=normalised).first()
+            if user is None:
+                user = User(email=normalised)
+                db.session.add(user)
+                db.session.commit()
+            return _finish_login(user)
     return render_template("auth/login.html", providers=providers(), email=email)
 
 
-@bp.route("/register", methods=["GET", "POST"])
+@bp.route("/register")
 def register():
-    if current_user.is_authenticated:
-        return redirect(url_for("main.dashboard"))
-    form = {"email": "", "name": ""}
-    if request.method == "POST":
-        form = {"email": request.form.get("email", ""), "name": request.form.get("name", "").strip()}
-        email = _normalise_email(form["email"])
-        password = request.form.get("password") or ""
-        error = None
-        if email is None:
-            error = "Enter a valid email address."
-        elif len(password) < MIN_PASSWORD_LENGTH:
-            error = f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
-        elif password != request.form.get("confirm"):
-            error = "Passwords don't match."
-        elif User.query.filter_by(email=email).first():
-            error = "An account with this email already exists — sign in instead."
-        if error:
-            flash(error, "error")
-        else:
-            user = User(email=email, name=form["name"][:255] or None)
-            user.set_password(password)
-            db.session.add(user)
-            db.session.commit()
-            return _finish_login(user)
-    return render_template("auth/register.html", providers=providers(), form=form)
+    # Old link target: accounts are now created by signing in with an email.
+    return redirect(url_for("auth.login"))
 
 
 @bp.route("/login/<provider>")

@@ -10,7 +10,6 @@ from app import create_app
 from app.extensions import db
 from app.models import OAuthIdentity, SetEntry, User, Workout, WorkoutTemplate
 
-PASSWORD = "correct-horse"
 
 
 @pytest.fixture
@@ -32,10 +31,9 @@ def client(app):
     return app.test_client()
 
 
-def register(client, email="lifter@example.com", password=PASSWORD):
-    return client.post(
-        "/auth/register", data={"email": email, "password": password, "confirm": password}
-    )
+def register(client, email="lifter@example.com"):
+    """Email-only sign-in creates the account on first use."""
+    return client.post("/auth/login", data={"email": email})
 
 
 def make_template(client, name="Push Day"):
@@ -72,66 +70,47 @@ def test_requires_login(client):
     assert client.get("/api/workouts/1").status_code == 401
 
 
-def test_register_login_logout(client, app):
-    r = register(client, "New@Example.com")
+def test_email_sign_in_creates_then_reuses_account(client, app):
+    r = register(client, "  New@Example.com ")
     assert r.status_code == 302 and r.headers["Location"] == "/"
     with app.app_context():
         u = User.query.one()
-        assert u.email == "new@example.com" and u.password_hash and u.password_hash != PASSWORD
-        assert u.unit == "lb"
+        assert u.email == "new@example.com" and u.unit == "lb"
 
     client.post("/auth/logout")
     assert client.get("/").status_code == 302
 
-    r = client.post("/auth/login", data={"email": "new@example.com", "password": "wrong-pass"})
-    assert b"Incorrect email or password" in r.data
-    r = client.post("/auth/login", data={"email": "NEW@example.com ", "password": PASSWORD})
+    # Signing in again with the same email (any case) reaches the same account
+    r = client.post("/auth/login", data={"email": "NEW@example.com"})
     assert r.status_code == 302 and client.get("/").status_code == 200
-
-
-def test_register_validation(client, app):
-    assert b"at least 8" in register(client, password="short").data
-    assert b"valid email" in register(client, email="nope").data
-    r = client.post("/auth/register", data={"email": "a@b.co", "password": PASSWORD, "confirm": "different1"})
-    assert b"match" in r.data
-    register(client, "dup@example.com")
-    client.post("/auth/logout")
-    assert b"already exists" in register(client, "dup@example.com").data
     with app.app_context():
         assert User.query.count() == 1
 
 
-def test_change_password(client, app):
-    register(client)
-    r = client.post("/settings", data={"form": "password", "current_password": "nope-nope",
-                                       "new_password": "newpassword", "confirm": "newpassword"},
-                    follow_redirects=True)
-    assert b"Current password is incorrect" in r.data
-    client.post("/settings", data={"form": "password", "current_password": PASSWORD,
-                                   "new_password": "newpassword", "confirm": "newpassword"})
-    client.post("/auth/logout")
-    assert client.post("/auth/login", data={"email": "lifter@example.com", "password": "newpassword"}).status_code == 302
+def test_email_sign_in_validation(client, app):
+    for bad in ("", "nope", "a@b", "a b@c.com"):
+        r = client.post("/auth/login", data={"email": bad})
+        assert b"valid email" in r.data, bad
+    with app.app_context():
+        assert User.query.count() == 0
+    # The old register URL just points at sign-in
+    assert client.get("/auth/register").headers["Location"].endswith("/auth/login")
 
 
-def test_sso_links_to_password_account_and_drops_unverified_password(app):
+def test_login_page_has_no_password_field(client):
+    page = client.get("/auth/login").data
+    assert b'name="email"' in page and b"password" not in page.lower()
+
+
+def test_sso_links_to_email_account(app):
     from app.auth import _login_from_claims
 
     with app.test_request_context():
-        squatter = User(email="victim@example.com")
-        squatter.set_password(PASSWORD)
-        db.session.add(squatter)
+        db.session.add(User(email="me@example.com"))
         db.session.commit()
-
-        _login_from_claims("google", {"sub": "g-1", "email": "victim@example.com", "email_verified": True})
+        _login_from_claims("google", {"sub": "g-1", "email": "me@example.com", "email_verified": True})
         u = User.query.one()
-        assert u.password_hash is None and u.email_verified
-        assert [i.provider for i in u.identities] == ["google"]
-
-        # Once the email is verified, a password set afterwards survives another SSO login.
-        u.set_password("brand-new-pass")
-        db.session.commit()
-        _login_from_claims("apple", {"sub": "a-1", "email": "victim@example.com", "email_verified": "true"})
-        assert u.check_password("brand-new-pass")
+        assert u.email_verified and [i.provider for i in u.identities] == ["google"]
 
 
 def test_identity_linking_by_verified_email(app):
@@ -177,7 +156,7 @@ def test_oauth_providers_registered_when_configured():
         assert providers() == []
     assert b"Continue with Google" in google_app.test_client().get("/auth/login").data
     plain_login = plain_app.test_client().get("/auth/login").data
-    assert b"Continue with" not in plain_login and b"Password" in plain_login
+    assert b"Continue with" not in plain_login and b'name="email"' in plain_login
     assert plain_app.test_client().get("/auth/login/apple").status_code == 404
 
 
@@ -458,7 +437,7 @@ def test_outdated_schema_is_reported(tmp_path):
     app = create_app({"SQLALCHEMY_DATABASE_URI": f"sqlite:///{path}", "AUTO_INIT_DB": False, "TESTING": True})
     with app.app_context():
         db.create_all()
-        with pytest.raises(SchemaOutdated, match="user.password_hash"):
+        with pytest.raises(SchemaOutdated, match="user.email_verified"):
             check_schema()
 
 
