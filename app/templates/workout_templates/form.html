@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit template' if template.id else 'New template' }}{% endblock %}
+{% block content %}
+<h1>{{ 'Edit template' if template.id else 'New template' }}</h1>
+
+<form method="post" class="form" id="template-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Name
+    <input type="text" name="name" value="{{ template.name or '' }}" placeholder="e.g. Push Day" required maxlength="120">
+  </label>
+  <label>Notes <span class="muted small">(optional)</span>
+    <textarea name="notes" rows="2">{{ template.notes or '' }}</textarea>
+  </label>
+
+  <h2>Exercises</h2>
+  <div id="rows">
+    {% for te in template.exercises %}
+      {% with name=te.exercise.name, sets=te.sets, reps=te.reps, weight=te.weight, rest=te.rest_seconds %}
+        {% include "workout_templates/_row.html" %}
+      {% endwith %}
+    {% endfor %}
+  </div>
+  <template id="row-template">
+    {% with name='', sets=3, reps=10, weight=None, rest=current_user.default_rest_seconds %}
+      {% include "workout_templates/_row.html" %}
+    {% endwith %}
+  </template>
+
+  <button type="button" class="btn btn-block" id="add-row">+ Add exercise</button>
+
+  <datalist id="exercise-names">
+    {% for n in exercise_names %}<option value="{{ n }}">{% endfor %}
+  </datalist>
+
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">Save template</button>
+    <a class="btn" href="{{ url_for('main.template_list') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/template_form.js') }}"></script>
+{% endblock %}

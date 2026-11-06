@@ -1,0 +1,16 @@
+<div class="card tpl-row">
+  <div class="tpl-row-head">
+    <input type="text" name="exercise_name" value="{{ name }}" list="exercise-names" placeholder="Exercise (pick or type a new one)" aria-label="Exercise">
+    <div class="tpl-row-tools">
+      <button type="button" class="icon-btn" data-act="up" title="Move up">↑</button>
+      <button type="button" class="icon-btn" data-act="down" title="Move down">↓</button>
+      <button type="button" class="icon-btn danger" data-act="remove" title="Remove">✕</button>
+    </div>
+  </div>
+  <div class="tpl-row-fields">
+    <label>Sets<input type="number" name="sets" min="1" max="50" value="{{ sets }}" inputmode="numeric"></label>
+    <label>Reps<input type="number" name="reps" min="0" max="1000" value="{{ reps if reps is not none else '' }}" inputmode="numeric"></label>
+    <label>Weight ({{ current_user.unit }})<input type="number" name="weight" min="0" step="0.25" value="{{ weight|weight }}" inputmode="decimal" placeholder="last"></label>
+    <label>Rest (s)<input type="number" name="rest_seconds" min="0" max="3600" step="5" value="{{ rest }}" inputmode="numeric"></label>
+  </div>
+</div>

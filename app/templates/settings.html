@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<form method="post" class="card form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Display name
+    <input type="text" name="name" value="{{ current_user.name or '' }}">
+  </label>
+  <label>Email
+    <input type="email" value="{{ current_user.email or '' }}" disabled>
+  </label>
+  <label>Weight unit
+    <select name="unit">
+      <option value="kg" {{ 'selected' if current_user.unit == 'kg' }}>Kilograms (kg)</option>
+      <option value="lb" {{ 'selected' if current_user.unit == 'lb' }}>Pounds (lb)</option>
+    </select>
+  </label>
+  <label>Default rest between sets (seconds)
+    <input type="number" name="default_rest_seconds" min="0" max="3600" step="5" value="{{ current_user.default_rest_seconds }}">
+  </label>
+  <button class="btn btn-primary" type="submit">Save</button>
+</form>
+
+<div class="card">
+  <p class="small muted">Signed in with:
+    {% for i in current_user.identities %}{{ i.provider|capitalize }}{{ ', ' if not loop.last }}{% endfor %}
+  </p>
+  <form method="post" action="{{ url_for('auth.logout') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn" type="submit">Sign out</button>
+  </form>
+</div>
+{% endblock %}

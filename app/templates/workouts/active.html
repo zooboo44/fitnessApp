@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ workout.name }}{% endblock %}
+{% block content %}
+<div id="workout" data-workout-id="{{ workout.id }}">
+  <div class="workout-head">
+    <input id="workout-name" class="title-input" type="text" value="{{ workout.name }}" maxlength="120" aria-label="Workout name">
+    <div class="elapsed" title="Elapsed time"><span id="elapsed">0:00</span></div>
+  </div>
+
+  <div id="exercises"><p class="muted">Loading…</p></div>
+
+  <form id="add-exercise" class="card add-exercise" autocomplete="off">
+    <input id="add-exercise-name" type="text" list="exercise-names" placeholder="Add exercise — pick or type a new one" aria-label="Exercise name" required>
+    <button class="btn btn-primary" type="submit">Add</button>
+  </form>
+  <datalist id="exercise-names">
+    {% for n in exercise_names %}<option value="{{ n }}">{% endfor %}
+  </datalist>
+
+  <label class="notes">Notes
+    <textarea id="workout-notes" rows="2" placeholder="How did it feel?">{{ workout.notes or '' }}</textarea>
+  </label>
+
+  <div class="actions">
+    <button type="button" class="btn" id="manual-timer">⏱ Start rest timer</button>
+    <form method="post" action="{{ url_for('main.workout_finish', workout_id=workout.id) }}" id="finish-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-primary" type="submit">Finish workout</button>
+    </form>
+    <form method="post" action="{{ url_for('main.workout_delete', workout_id=workout.id) }}"
+          onsubmit="return confirm('Discard this workout? Everything logged will be lost.')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-danger" type="submit">Discard</button>
+    </form>
+  </div>
+</div>
+
+<div id="rest-timer" class="rest-timer" hidden>
+  <div class="rest-progress"><div id="rest-bar"></div></div>
+  <div class="rest-body">
+    <button type="button" class="btn" data-rest="-15">−15s</button>
+    <div class="rest-display">
+      <div class="small muted" id="rest-label">Rest</div>
+      <div id="rest-time">0:00</div>
+    </div>
+    <button type="button" class="btn" data-rest="15">+15s</button>
+    <button type="button" class="btn btn-primary" data-rest="skip">Skip</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/workout.js') }}"></script>
+{% endblock %}

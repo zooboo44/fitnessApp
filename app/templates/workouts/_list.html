@@ -1,0 +1,16 @@
+<ul class="plain workout-list">
+  {% for w in (recent if recent is defined else pagination.items) %}
+  <li>
+    <a class="card row" href="{{ url_for('main.workout_view', workout_id=w.id) }}">
+      <div>
+        <strong>{{ w.name }}</strong>
+        <div class="small muted">{{ w.finished_at|date }}</div>
+      </div>
+      <div class="right small muted">
+        {{ w.duration_seconds|duration }}<br>
+        {{ w.completed_sets|length }} sets · {{ w.total_volume|weight }} {{ current_user.unit }}
+      </div>
+    </a>
+  </li>
+  {% endfor %}
+</ul>

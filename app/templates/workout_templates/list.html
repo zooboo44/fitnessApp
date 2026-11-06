@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Templates{% endblock %}
+{% block content %}
+<div class="section-head">
+  <h1>Templates</h1>
+  <a class="btn btn-primary" href="{{ url_for('main.template_new') }}">+ New</a>
+</div>
+
+{% for t in templates %}
+<div class="card">
+  <div class="template-card-head">
+    <strong>{{ t.name }}</strong>
+    <span class="small muted">{{ t.exercises|length }} exercise{{ 's' if t.exercises|length != 1 }}</span>
+  </div>
+  {% if t.notes %}<p class="small muted">{{ t.notes }}</p>{% endif %}
+  <table class="sets compact">
+    <thead><tr><th>Exercise</th><th>Sets</th><th>Reps</th><th>{{ current_user.unit }}</th><th>Rest</th></tr></thead>
+    <tbody>
+      {% for te in t.exercises %}
+      <tr>
+        <td>{{ te.exercise.name }}</td>
+        <td>{{ te.sets }}</td>
+        <td>{{ te.reps if te.reps is not none else '–' }}</td>
+        <td>{{ te.weight|weight or '–' }}</td>
+        <td>{{ te.rest_seconds|duration }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="actions">
+    <form method="post" action="{{ url_for('main.workout_start') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="template_id" value="{{ t.id }}">
+      <button class="btn btn-primary" type="submit">Start workout</button>
+    </form>
+    <a class="btn" href="{{ url_for('main.template_edit', template_id=t.id) }}">Edit</a>
+    <form method="post" action="{{ url_for('main.template_delete', template_id=t.id) }}"
+          onsubmit="return confirm('Delete template “{{ t.name }}”?')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-danger" type="submit">Delete</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<p class="muted">You don't have any templates yet.</p>
+{% endfor %}
+{% endblock %}

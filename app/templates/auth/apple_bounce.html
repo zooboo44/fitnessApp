@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Signing in…</title></head>
+<body>
+  <form id="f" method="post" action="{{ url_for('auth.callback_apple_complete') }}">
+    {% for key, value in fields.items() %}
+    <input type="hidden" name="{{ key }}" value="{{ value }}">
+    {% endfor %}
+    <noscript><button type="submit">Continue</button></noscript>
+  </form>
+  <script>document.getElementById("f").submit();</script>
+</body>
+</html>

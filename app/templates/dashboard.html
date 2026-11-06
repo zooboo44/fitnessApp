@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<h1>Hi, {{ current_user.display_name }}</h1>
+
+{% if active %}
+<a class="card active-banner" href="{{ url_for('main.workout_view', workout_id=active.id) }}">
+  <span class="pulse"></span>
+  <div>
+    <strong>{{ active.name }}</strong> is in progress
+    <div class="small">Started {{ active.started_at.strftime('%H:%M') }} UTC · tap to resume</div>
+  </div>
+</a>
+{% else %}
+<form method="post" action="{{ url_for('main.workout_start') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button class="btn btn-primary btn-block" type="submit">+ Start empty workout</button>
+</form>
+{% endif %}
+
+<section>
+  <div class="section-head">
+    <h2>Start from a template</h2>
+    <a class="small" href="{{ url_for('main.template_new') }}">+ New template</a>
+  </div>
+  {% if templates %}
+  <div class="grid">
+    {% for t in templates %}
+    <div class="card template-card">
+      <div class="template-card-head">
+        <strong>{{ t.name }}</strong>
+        <a class="small" href="{{ url_for('main.template_edit', template_id=t.id) }}">Edit</a>
+      </div>
+      <ul class="plain small muted">
+        {% for te in t.exercises[:6] %}
+        <li>{{ te.sets }} × {{ te.exercise.name }}</li>
+        {% endfor %}
+        {% if t.exercises|length > 6 %}<li>+ {{ t.exercises|length - 6 }} more</li>{% endif %}
+      </ul>
+      <form method="post" action="{{ url_for('main.workout_start') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="template_id" value="{{ t.id }}">
+        <button class="btn btn-block" type="submit" {{ 'disabled' if active }}>Start</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No templates yet. <a href="{{ url_for('main.template_new') }}">Create one</a>, or start an empty workout and save it as a template afterwards.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Recent workouts</h2>
+    <a class="small" href="{{ url_for('main.history') }}">All history</a>
+  </div>
+  {% if recent %}
+    {% include "workouts/_list.html" %}
+  {% else %}
+  <p class="muted">Nothing logged yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

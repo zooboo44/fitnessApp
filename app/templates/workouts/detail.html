@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ workout.name }}{% endblock %}
+{% block content %}
+<h1>{{ workout.name }}</h1>
+<p class="muted">{{ workout.finished_at|date }}</p>
+
+<div class="stats">
+  <div class="stat"><span>{{ workout.duration_seconds|duration }}</span>Duration</div>
+  <div class="stat"><span>{{ workout.completed_sets|length }}</span>Sets</div>
+  <div class="stat"><span>{{ workout.total_volume|weight }}</span>Volume ({{ current_user.unit }})</div>
+</div>
+
+{% if workout.notes %}<p class="card">{{ workout.notes }}</p>{% endif %}
+
+{% for we in workout.exercises %}
+<div class="card">
+  <h3>{{ we.exercise.name }}</h3>
+  <table class="sets">
+    <thead><tr><th>Set</th><th>{{ current_user.unit }}</th><th>Reps</th><th></th></tr></thead>
+    <tbody>
+      {% for s in we.sets %}
+      <tr class="{{ '' if s.completed else 'muted' }}">
+        <td>{{ loop.index }}</td>
+        <td>{{ s.weight|weight or '–' }}</td>
+        <td>{{ s.reps if s.reps is not none else '–' }}</td>
+        <td>{{ '✓' if s.completed else 'skipped' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="muted">No exercises were logged.</p>
+{% endfor %}
+
+<div class="actions">
+  <form method="post" action="{{ url_for('main.workout_save_template', workout_id=workout.id) }}" class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="text" name="name" value="{{ workout.name }}" aria-label="Template name">
+    <button class="btn" type="submit">Save as template</button>
+  </form>
+  <form method="post" action="{{ url_for('main.workout_delete', workout_id=workout.id) }}"
+        onsubmit="return confirm('Delete this workout permanently?')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-danger" type="submit">Delete workout</button>
+  </form>
+</div>
+{% endblock %}
