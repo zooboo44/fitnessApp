@@ -15,7 +15,7 @@ A mobile-friendly fitness web app built with Python and Flask.
 - **History:** duration, completed sets and total volume for each workout. You can save any workout as a new template.
 - **Sign in with email + password, Google or Apple.** Accounts with the same verified email are linked automatically, and SSO users can add a password in Settings.
 - Built-in exercise library (about 50 exercises). Any new name you type becomes a custom exercise.
-- Choose kg or lb, and set a default rest time.
+- Weights are in pounds (lb) by default; switch to kg in Settings. You can also set a default rest time.
 
 ## Run with Docker
 

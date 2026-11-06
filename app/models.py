@@ -15,7 +15,7 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, index=True)
     name = db.Column(db.String(255))
-    unit = db.Column(db.String(2), nullable=False, default="kg")  # "kg" or "lb"
+    unit = db.Column(db.String(2), nullable=False, default="lb")  # "lb" or "kg"
     default_rest_seconds = db.Column(db.Integer, nullable=False, default=90)
     password_hash = db.Column(db.String(255))
     # True once an SSO provider has vouched for this email address.

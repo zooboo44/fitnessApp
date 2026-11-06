@@ -78,6 +78,7 @@ def test_register_login_logout(client, app):
     with app.app_context():
         u = User.query.one()
         assert u.email == "new@example.com" and u.password_hash and u.password_hash != PASSWORD
+        assert u.unit == "lb"
 
     client.post("/auth/logout")
     assert client.get("/").status_code == 302

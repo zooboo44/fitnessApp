@@ -12,8 +12,8 @@
   </label>
   <label>Weight unit
     <select name="unit">
-      <option value="kg" {{ 'selected' if current_user.unit == 'kg' }}>Kilograms (kg)</option>
       <option value="lb" {{ 'selected' if current_user.unit == 'lb' }}>Pounds (lb)</option>
+      <option value="kg" {{ 'selected' if current_user.unit == 'kg' }}>Kilograms (kg)</option>
     </select>
   </label>
   <label>Default rest between sets (seconds)
