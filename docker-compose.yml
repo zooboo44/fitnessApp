@@ -5,7 +5,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://fitness:${POSTGRES_PASSWORD:-fitness}@db:5432/fitness
     ports:
-      - "8000:8000"
+      # Host port 80 (override with HTTP_PORT in .env) -> gunicorn on 8000 inside the container
+      - "${HTTP_PORT:-80}:8000"
     depends_on:
       db:
         condition: service_healthy

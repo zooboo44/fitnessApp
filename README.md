@@ -24,7 +24,9 @@ cp .env.example .env        # then fill in SECRET_KEY and your SSO credentials
 docker compose up --build
 ```
 
-Open http://localhost:8000. This starts the app (gunicorn) and PostgreSQL. Data is stored in the `pgdata` volume.
+Open http://localhost (port 80). This starts the app (gunicorn) and PostgreSQL. Data is stored in the `pgdata` volume.
+
+If port 80 is already taken on your machine, set `HTTP_PORT=8080` (or another free port) in `.env` and include the port in `BASE_URL`.
 
 Enter your email to sign in; a new email creates an account. Google and Apple are optional and only appear once configured.
 
@@ -32,7 +34,7 @@ Run the image on its own with SQLite:
 
 ```bash
 docker build -t repsy .
-docker run -p 8000:8000 --env-file .env -e DATABASE_URL=sqlite:////data/fitness.db -v repsy-data:/data repsy
+docker run -p 80:8000 --env-file .env -e DATABASE_URL=sqlite:////data/fitness.db -v repsy-data:/data repsy
 ```
 
 ## Local development (without Docker)
@@ -47,7 +49,7 @@ FLASK_DEBUG=1 .venv/bin/flask --app wsgi:app run
 
 ### Google
 1. Go to [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials). Create an **OAuth client ID** of type *Web application*.
-2. Add this **Authorized redirect URI**: `{BASE_URL}/auth/callback/google` (for local use, `http://localhost:8000/auth/callback/google`).
+2. Add this **Authorized redirect URI**: `{BASE_URL}/auth/callback/google` (for local use, `http://localhost/auth/callback/google`).
 3. Put the client ID and secret in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
 ### Apple
